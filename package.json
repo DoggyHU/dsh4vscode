@@ -2,7 +2,7 @@
   "name": "dsh4vscode",
   "displayName": "DSH Chat for VS Code",
   "description": "DeepSeek Harness (DSH) inside VS Code: chat with the running DSH instance, auto-routing planning/architecture to DeepSeek Pro, grunt work to Flash, and failed debugging to Pro Max.",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "publisher": "dsh4vscode",
   "license": "MIT",
   "repository": {

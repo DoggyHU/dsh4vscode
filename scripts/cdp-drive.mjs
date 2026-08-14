@@ -219,6 +219,43 @@ ws.on('open', async () => {
       console.log('saved ' + pngPath)
       process.exit(0)
     }
+    if (command === 'keys') {
+      // keys <token> [token...]
+      //   token = chord like Ctrl+Shift+P, plain key like Enter/Escape/ArrowDown/Tab,
+      //   or text:<string> (Input.insertText)
+      const VK = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39 }
+      const MOD = { Alt: 1, Ctrl: 2, Meta: 4, Shift: 8 }
+      for (const token of rest) {
+        if (token.startsWith('text:')) {
+          const text = token.slice(5).replace(/<sp>/g, ' ').replace(/<ent>/g, '\n')
+          await send('Input.insertText', { text })
+          await new Promise((r) => setTimeout(r, 120))
+          continue
+        }
+        const parts = token.split('+')
+        let modifiers = 0
+        let key = parts[parts.length - 1]
+        for (const p of parts.slice(0, -1)) {
+          if (MOD[p] !== undefined) modifiers |= MOD[p]
+          else key = p
+        }
+        const isChord = parts.length > 1
+        const code = key.length === 1 ? `Key${key.toUpperCase()}` : (key === ' ' ? 'Space' : key)
+        const vk = key.length === 1 ? key.toUpperCase().charCodeAt(0) : (VK[key] ?? 0)
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, key: key.toLowerCase(), code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk })
+        if (isChord) {
+          await new Promise((r) => setTimeout(r, 80))
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: key.toLowerCase(), code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk })
+        } else {
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: key.toLowerCase(), code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk })
+        }
+        await new Promise((r) => setTimeout(r, 150))
+      }
+      await new Promise((r) => setTimeout(r, 600))
+      console.log('keys sent')
+      process.exit(0)
+    }
+
     console.error('unknown command ' + command)
     process.exit(1)
   } catch (err) {

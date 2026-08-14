@@ -440,6 +440,28 @@ body {
 }
 .perm-badge:hover { color: var(--fg); border-color: var(--accent); }
 
+/* ---- permission picker menu ---- */
+.perm-menu {
+  position: absolute;
+  bottom: 44px; left: 10px;
+  background: var(--vscode-dropdown-background, #2d2d30);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  z-index: 40;
+  display: flex; flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+}
+.perm-menu-item {
+  text-align: left;
+  background: transparent; border: none; border-radius: 5px;
+  color: var(--fg); font-size: 12px;
+  padding: 6px 10px; cursor: pointer;
+}
+.perm-menu-item:hover { background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.06)); }
+.perm-menu-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
 /* toast */
 #toast {
   position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);

@@ -349,8 +349,11 @@
     // Permission badge.
     const permBadge = document.getElementById('perm-badge')
     const perm = snapshot.permission || ''
+    if (Array.isArray(snapshot.permissionOptions) && snapshot.permissionOptions.length > 0) {
+      permissionOptions = snapshot.permissionOptions
+    }
     permBadge.textContent = perm ? `🛡 ${permLabel(perm)}` : '🛡 …'
-    permBadge.title = `当前权限：${perm || '未知'}（点击切换）`
+    permBadge.title = `当前权限：${perm || '未知'}（点击选择 / Shift+Tab 切换）`
     chatEl.innerHTML = ''
     turns.length = 0
     emptyHint.classList.toggle('hidden', snapshot.turns.length > 0)
@@ -729,10 +732,45 @@
   document.getElementById('effort-select').addEventListener('change', () => {
     vscode.postMessage({ type: 'setEffort', effort: document.getElementById('effort-select').value })
   })
-  document.getElementById('perm-badge').addEventListener('click', () => {
-    vscode.postMessage({ type: 'cyclePermission', sessionId: activeSessionId })
+
+  // ---- permission badge: click opens a picker, Shift+Tab cycles ----
+  const permBadgeEl = document.getElementById('perm-badge')
+  const permMenu = document.createElement('div')
+  permMenu.className = 'perm-menu hidden'
+  document.getElementById('dsh-footer').appendChild(permMenu)
+  let permissionOptions = ['read-only', 'workspace-write', 'danger-full-access']
+
+  function renderPermMenu() {
+    permMenu.innerHTML = ''
+    const cur = (lastSnapshot && lastSnapshot.permission) || ''
+    for (const p of permissionOptions) {
+      const row = document.createElement('button')
+      row.className = 'perm-menu-item' + (p === cur ? ' active' : '')
+      row.textContent = permLabel(p)
+      row.addEventListener('click', () => {
+        permMenu.classList.add('hidden')
+        vscode.postMessage({ type: 'setPermission', preset: p, sessionId: activeSessionId })
+      })
+      permMenu.appendChild(row)
+    }
+  }
+
+  permBadgeEl.addEventListener('click', (e) => {
+    e.stopPropagation()
+    renderPermMenu()
+    permMenu.classList.toggle('hidden')
   })
-  modelSelect.addEventListener('change', () => vscode.postMessage({ type: 'selectMode', mode: modelSelect.value }))
+  document.addEventListener('click', (e) => {
+    if (!permMenu.classList.contains('hidden') && !permMenu.contains(e.target) && e.target !== permBadgeEl) {
+      permMenu.classList.add('hidden')
+    }
+  })
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault()
+      vscode.postMessage({ type: 'cyclePermission', sessionId: activeSessionId })
+    }
+  })
   document.getElementById('btn-new-tab').addEventListener('click', () => {
     vscode.postMessage({ type: 'newSession' })
   })

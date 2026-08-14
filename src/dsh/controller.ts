@@ -76,6 +76,8 @@ interface SessionState {
   stepTextItemId: string | undefined
   currentStep: number
   pendingTools: Map<string, string> // callId -> itemId
+  /** Current permission preset of THIS session (from its projections). */
+  permission: string
 }
 
 function newSessionState(sessionId: string, persisted: boolean, title = '新会话'): SessionState {
@@ -93,6 +95,7 @@ function newSessionState(sessionId: string, persisted: boolean, title = '新会�
     stepTextItemId: undefined,
     currentStep: -1,
     pendingTools: new Map(),
+    permission: '',
   }
 }
 
@@ -106,7 +109,6 @@ export class ChatController implements vscode.Disposable {
   /** 'auto' = router, otherwise an explicit catalog model id. */
   private modelChoice = 'auto'
   private effort = 'high'
-  private permission = ''
   private permissionOptions: string[] = ['read-only', 'workspace-write', 'danger-full-access']
   private catalogModels: string[] = []
   private lastError: string | undefined
@@ -364,17 +366,21 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
-  /** Current permission preset of the active session (from its projections). */
-  private async refreshPermission(): Promise<void> {
+  /**
+   * Refresh the permission preset of one session from its projections.
+   * @param sessionId - target session; omitted = controller-active session.
+   */
+  private async refreshPermission(sessionId?: string): Promise<void> {
     try {
       const { items } = await this.client.listSessions()
-      const st = this.active()
+      const targetId = sessionId !== undefined ? sessionId : this.activeSessionId
+      const st = targetId !== undefined ? this.sessions.get(targetId) : undefined
       if (st === undefined) return
       const mine = items.find((item) => item.sessionId === st.sessionId)
       const proj = (mine as { projections?: { values?: Record<string, unknown> } } | undefined)?.projections
       const perm = proj?.values?.permissions as { currentValue?: string; options?: { value?: string }[] } | undefined
       if (typeof perm?.currentValue === 'string' && perm.currentValue !== '') {
-        this.permission = perm.currentValue
+        st.permission = perm.currentValue
       }
       if (Array.isArray(perm?.options) && perm.options.length > 0) {
         this.permissionOptions = perm.options.map((o) => String(o.value ?? '')).filter((v) => v !== '')
@@ -401,15 +407,33 @@ export class ChatController implements vscode.Disposable {
     this.emitState()
   }
 
+  /** Switch the session permission preset to an explicit one. */
+  async setPermission(preset: string, sessionId?: string): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    if (!this.permissionOptions.includes(preset)) {
+      this.emit({ type: 'toast', kind: 'warn', text: `未知权限模式：${preset}` })
+      return
+    }
+    await this.runPermissionCommand(st.sessionId, preset)
+  }
+
   /** Cycle the session permission preset (read-only → workspace-write → full access). */
   async cyclePermission(sessionId?: string): Promise<void> {
     const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
     if (st === undefined) return
-    const idx = this.permissionOptions.indexOf(this.permission)
+    // The cached value may be stale (or belong to another session's run) —
+    // always re-read THIS session's projection before cycling.
+    await this.refreshPermission(st.sessionId)
+    const idx = this.permissionOptions.indexOf(st.permission)
     const next = this.permissionOptions[(idx + 1) % this.permissionOptions.length]
     if (next === undefined) return
+    await this.runPermissionCommand(st.sessionId, next)
+  }
+
+  private async runPermissionCommand(sessionId: string, preset: string): Promise<void> {
     try {
-      const result = await this.client.executeCommand(st.sessionId, `/permission ${next}`)
+      const result = await this.client.executeCommand(sessionId, `/permission ${preset}`)
       const text = result.result?.text
       if (text !== undefined && text !== '') {
         this.emit({ type: 'toast', kind: 'info', text: `权限：${text}` })
@@ -417,8 +441,18 @@ export class ChatController implements vscode.Disposable {
     } catch (error) {
       this.emit({ type: 'toast', kind: 'warn', text: `权限切换失败：${errorMessage(error)}` })
     }
-    // Refresh the badge from the projections (slightly deferred for durability).
-    setTimeout(() => { void this.refreshPermission().then(() => this.emitState()) }, 500)
+    // Refresh the badge from the projections. The projection write lags the
+    // command a little, so poll a couple of times. Must read THIS session's
+    // projection (windows are bound to sessions independently of the
+    // controller-level active tab).
+    const st = this.sessions.get(sessionId)
+    for (const delay of [800, 1200]) {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      const before = st?.permission ?? ''
+      await this.refreshPermission(sessionId)
+      if ((st?.permission ?? '') !== before) break
+    }
+    this.emitState()
   }
 
   private async ensureCatalog(st: SessionState): Promise<Set<string> | undefined> {
@@ -458,6 +492,7 @@ export class ChatController implements vscode.Disposable {
       const st = newSessionState(created.sessionId, true)
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId
+      await this.refreshPermission(st.sessionId)
       this.emitState()
       this.emit({ type: 'toast', kind: 'info', text: '已新建会话' })
       return created.sessionId
@@ -491,6 +526,7 @@ export class ChatController implements vscode.Disposable {
       }
     }
     this.activeSessionId = sessionId
+    await this.refreshPermission(sessionId)
     this.emitState()
   }
 
@@ -869,7 +905,7 @@ export class ChatController implements vscode.Disposable {
       availableModels: this.catalogModels,
       modelChoice: this.modelChoice,
       effort: this.effort,
-      permission: this.permission,
+      permission: st?.permission ?? '',
       permissionOptions: this.permissionOptions,
     }
   }
@@ -880,7 +916,12 @@ export class ChatController implements vscode.Disposable {
    */
   async ensureSessionLoaded(sessionId: string): Promise<boolean> {
     let st = this.sessions.get(sessionId)
-    if (st !== undefined) return true
+    if (st !== undefined) {
+      // In memory but its permission may never have been read (e.g. sessions
+      // loaded before this window opened). Fill it in so the badge is right.
+      if (st.permission === '') await this.refreshPermission(sessionId)
+      return true
+    }
     try {
       const page = await this.client.history(sessionId, undefined, 300)
       st = newSessionState(sessionId, true)
@@ -891,6 +932,7 @@ export class ChatController implements vscode.Disposable {
         st.lastTurnFailed = rebuilt[rebuilt.length - 1]?.status === 'error'
       }
       this.sessions.set(sessionId, st)
+      await this.refreshPermission(sessionId)
       return true
     } catch {
       return false

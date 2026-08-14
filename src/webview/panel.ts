@@ -151,6 +151,11 @@ export class ChatPanel implements vscode.Disposable {
       case 'cyclePermission':
         await this.controller.cyclePermission(sessionId)
         break
+      case 'setPermission': {
+        const preset = String(message.preset ?? '')
+        if (preset !== '') await this.controller.setPermission(preset, sessionId)
+        break
+      }
       case 'findFiles': {
         const query = String(message.query ?? '')
         const files = await findWorkspaceFiles(query)
@@ -228,8 +233,16 @@ export class ChatPanel implements vscode.Disposable {
   }
 
   private renderHtml(webview: vscode.Webview, title: string): string {
+    // Cache-bust: the webview service worker caches media by URL; a version
+    // query makes every release fetch fresh assets. In development the package
+    // version never changes between edits, so append a per-window timestamp —
+    // otherwise the SW keeps serving yesterday's main.js during the dev loop.
+    const pkgVersion = String(this.ctx.extension.packageJSON?.version ?? '')
+    const version = this.ctx.extensionMode === vscode.ExtensionMode.Development
+      ? `${pkgVersion}-${Date.now()}`
+      : pkgVersion
     const media = (name: string): vscode.Uri => webview.asWebviewUri(
-      vscode.Uri.joinPath(this.ctx.extensionUri, 'media', name),
+      vscode.Uri.joinPath(this.ctx.extensionUri, 'media', name).with({ query: `v=${version}` }),
     )
     const styleUri = media('style.css')
     const mainUri = media('main.js')
@@ -310,6 +323,7 @@ export class ChatPanel implements vscode.Disposable {
       <button id="btn-send" class="btn-send" disabled>发送</button>
     </div>
   </footer>
+  <div id="toast" class="toast"></div>
   <script src="${mdUri}"></script>
   <script src="${mainUri}"></script>
 </body>
