@@ -1,0 +1,218 @@
+{
+  "name": "dsh4vscode",
+  "displayName": "DSH Chat for VS Code",
+  "description": "DeepSeek Harness (DSH) inside VS Code: chat with the running DSH instance, auto-routing planning/architecture to DeepSeek Pro, grunt work to Flash, and failed debugging to Pro Max.",
+  "version": "0.1.0",
+  "publisher": "dsh4vscode",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek",
+    "harness",
+    "chat",
+    "ai",
+    "agent"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:dsh.openChat",
+    "onCommand:dsh.openInEditor",
+    "onCommand:dsh.newWindow",
+    "onCommand:dsh.askSelection",
+    "onCommand:dsh.fixSelection",
+    "onCommand:dsh.newSession",
+    "onCommand:dsh.selectModel",
+    "onCommand:dsh.cancel",
+    "onCommand:dsh.clearChat",
+    "onCommand:dsh.reconnect",
+    "onCommand:dsh.openDshWeb"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dsh.openChat",
+        "title": "DSH: Open Chat",
+        "icon": "media/icon.svg"
+      },
+      {
+        "command": "dsh.openInEditor",
+        "title": "DSH: Open Session in Editor Window",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "dsh.newWindow",
+        "title": "DSH: New Chat Window (Independent Session)",
+        "icon": "$(window)"
+      },
+      {
+        "command": "dsh.newSession",
+        "title": "DSH: New Session"
+      },
+      {
+        "command": "dsh.selectModel",
+        "title": "DSH: Select Model (next message)"
+      },
+      {
+        "command": "dsh.cancel",
+        "title": "DSH: Cancel Current Run"
+      },
+      {
+        "command": "dsh.clearChat",
+        "title": "DSH: Clear Chat"
+      },
+      {
+        "command": "dsh.askSelection",
+        "title": "DSH: Ask About Selection",
+        "icon": "$(question)"
+      },
+      {
+        "command": "dsh.fixSelection",
+        "title": "DSH: Debug / Fix Selection",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "dsh.reconnect",
+        "title": "DSH: Reconnect"
+      },
+      {
+        "command": "dsh.openDshWeb",
+        "title": "DSH: Open Web GUI in Browser"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "dsh.openChat",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dsh.openChat",
+          "group": "navigation"
+        },
+        {
+          "command": "dsh.askSelection",
+          "when": "editorHasSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "dsh.fixSelection",
+          "when": "editorHasSelection",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "dsh.askSelection",
+          "when": "editorHasSelection",
+          "group": "dsh@1"
+        },
+        {
+          "command": "dsh.fixSelection",
+          "when": "editorHasSelection",
+          "group": "dsh@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DSH Chat",
+      "properties": {
+        "dsh.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3080",
+          "description": "Base URL of the running DSH instance (web server). The extension calls its /api RPC endpoint and /api/events.* WebSocket streams."
+        },
+        "dsh.provider": {
+          "type": "string",
+          "default": "deepseek-official",
+          "description": "Provider route id used for model selection."
+        },
+        "dsh.models": {
+          "type": "object",
+          "default": {
+            "flash": "deepseek-v4-flash",
+            "pro": "deepseek-v4-pro",
+            "proMax": "deepseek-v4-pro-max"
+          },
+          "properties": {
+            "flash": { "type": "string", "description": "Model id for grunt work (default)." },
+            "pro": { "type": "string", "description": "Model id for planning / architecture / design." },
+            "proMax": { "type": "string", "description": "Model id for escalated debugging. Falls back to pro when unavailable." }
+          },
+          "description": "Model ids used by automatic routing."
+        },
+        "dsh.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "off",
+            "high",
+            "max"
+          ],
+          "default": "high",
+          "description": "Reasoning effort applied when selecting a routed model."
+        },
+        "dsh.reasoningEfforts": {
+          "type": "object",
+          "default": {
+            "flash": "high",
+            "pro": "max",
+            "proMax": "max"
+          },
+          "properties": {
+            "flash": { "type": "string", "enum": ["off", "high", "max"], "description": "Reasoning effort for the flash model." },
+            "pro": { "type": "string", "enum": ["off", "high", "max"], "description": "Reasoning effort for the pro model." },
+            "proMax": { "type": "string", "enum": ["off", "high", "max"], "description": "Reasoning effort for the proMax model." }
+          },
+          "description": "Per-model reasoning effort used by automatic routing."
+        },
+        "dsh.autoRoute": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically route prompts: planning/architecture → pro, grunt work → flash, failed turns → proMax."
+        },
+        "dsh.escalateOnFailure": {
+          "type": "boolean",
+          "default": true,
+          "description": "After a turn ends in error, escalate the next auto-routed message to proMax (falling back to pro when the model is unavailable)."
+        },
+        "dsh.workspacePath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the working directory (cwd) used for DSH sessions. Empty = first workspace folder; falls back to home directory."
+        },
+        "dsh.agentPreset": {
+          "type": "string",
+          "default": "standard",
+          "description": "Agent preset used when creating sessions."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.5.12",
+    "@vscode/vsce": "^3.2.0",
+    "markdown-it": "^14.1.0",
+    "typescript": "^5.5.4"
+  }
+}
