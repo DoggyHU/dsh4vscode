@@ -132,7 +132,10 @@ export class ChatPanel implements vscode.Disposable {
       case 'send': {
         const raw = String(message.text ?? '')
         if (raw.trim() !== '') {
-          const expanded = await expandFileRefs(raw)
+          // Claude Code parity: the active editor selection rides along with
+          // the message, so "把这行替换成…" works without extra steps.
+          const withSelection = await attachActiveSelection(raw)
+          const expanded = await expandFileRefs(withSelection)
           await this.controller.send(expanded, sessionId)
         }
         break
@@ -354,6 +357,38 @@ async function openInEditor(p: string): Promise<void> {
 }
 
 const FILE_REF_RE = /(^|\s)@([^\s@]+)/g
+
+/** Longest selection that rides along with a message before truncation. */
+const SELECTION_MAX_CHARS = 20000
+
+/**
+ * Attach the active editor's selection to an outgoing message — the same
+ * affordance Claude Code has: the user selects a line in the editor, then
+ * asks "把这行替换成…" in chat, and the agent can see the exact text,
+ * its file, and its line range. No-op when nothing is selected.
+ */
+async function attachActiveSelection(text: string): Promise<string> {
+  const editor = vscode.window.activeTextEditor
+  if (editor === undefined) return text
+  const selection = editor.selection
+  if (selection.isEmpty) return text
+  const selected = editor.document.getText(selection)
+  if (selected.trim() === '') return text
+  const rel = vscode.workspace.asRelativePath(editor.document.uri, false)
+  const range = `${selection.start.line + 1}-${selection.end.line + 1}`
+  const snippet = selected.length > SELECTION_MAX_CHARS
+    ? `${selected.slice(0, SELECTION_MAX_CHARS)}\n…(选区过长已截断)`
+    : selected
+  const block = [
+    '',
+    '以下是你发送这条消息时，用户在 VS Code 编辑器中选中的内容（请针对这段内容回复本条消息）：',
+    `文件：\`${rel}\`（第 ${range} 行）`,
+    '```' + editor.document.languageId,
+    snippet,
+    '```',
+  ].join('\n')
+  return text + block
+}
 
 /**
  * Expand `@path` references in a message into inline file content blocks.
