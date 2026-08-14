@@ -128,13 +128,35 @@ export class ChatPanel implements vscode.Disposable {
       case 'ready':
         break
       case 'send': {
-        const text = String(message.text ?? '')
-        if (text.trim() !== '') await this.controller.send(text, sessionId)
+        const raw = String(message.text ?? '')
+        if (raw.trim() !== '') {
+          const expanded = await expandFileRefs(raw)
+          await this.controller.send(expanded, sessionId)
+        }
         break
       }
       case 'cancel':
         await this.controller.cancel(sessionId)
         break
+      case 'setModelChoice': {
+        const model = String(message.model ?? 'auto')
+        await this.controller.setModelChoice(model)
+        break
+      }
+      case 'setEffort': {
+        const effort = String(message.effort ?? 'high')
+        await this.controller.setEffort(effort)
+        break
+      }
+      case 'cyclePermission':
+        await this.controller.cyclePermission(sessionId)
+        break
+      case 'findFiles': {
+        const query = String(message.query ?? '')
+        const files = await findWorkspaceFiles(query)
+        endpoint.post({ type: 'fileResults', query, files })
+        break
+      }
       case 'selectMode': {
         const mode = String(message.mode ?? 'auto') as RouteMode
         if (['auto', 'flash', 'pro', 'proMax'].includes(mode)) await this.controller.setMode(mode)
@@ -246,11 +268,12 @@ export class ChatPanel implements vscode.Disposable {
     </div>
     <div class="header-row">
       <label class="model-label" for="model-select">模型</label>
-      <select id="model-select" title="模型路由（下一条消息生效）">
-        <option value="auto">Auto · 自动路由</option>
-        <option value="flash">Flash · 杂活</option>
-        <option value="pro">Pro · 规划/架构</option>
-        <option value="proMax">Pro Max · 疑难调试</option>
+      <select id="model-select" title="模型（Auto = 自动路由）"></select>
+      <label class="model-label" for="effort-select">思考</label>
+      <select id="effort-select" title="推理强度（手动选模型时生效）">
+        <option value="off">off</option>
+        <option value="high">high</option>
+        <option value="max">max</option>
       </select>
       <span class="spacer"></span>
       <button id="btn-cancel" class="btn-cancel hidden" title="取消当前运行">停止</button>
@@ -278,8 +301,10 @@ export class ChatPanel implements vscode.Disposable {
     </div>
   </main>
   <footer id="dsh-footer">
-    <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行。可引用编辑器选区（右键 → DSH）。"></textarea>
+    <div id="input-popup" class="input-popup hidden"></div>
+    <textarea id="input" rows="1" placeholder="输入消息，Enter 发送。@ 引用文件，/ 斜杠命令，Shift+Enter 换行。"></textarea>
     <div class="footer-row">
+      <button id="perm-badge" class="perm-badge" title="点击切换权限模式（read-only → workspace-write → full access）"></button>
       <span id="status-text" class="status-text"></span>
       <span class="spacer"></span>
       <button id="btn-send" class="btn-send" disabled>发送</button>
@@ -308,5 +333,88 @@ async function openInEditor(p: string): Promise<void> {
     await vscode.window.showTextDocument(doc, { preview: false })
   } catch (error) {
     void vscode.window.showErrorMessage(`无法打开文件 ${p}：${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+const FILE_REF_RE = /(^|\s)@([^\s@]+)/g
+
+/**
+ * Expand `@path` references in a message into inline file content blocks.
+ * Only matches paths that resolve to real files in the workspace.
+ */
+async function expandFileRefs(text: string): Promise<string> {
+  const refs = new Set<string>()
+  let match: RegExpExecArray | null
+  const re = new RegExp(FILE_REF_RE.source, 'g')
+  while ((match = re.exec(text)) !== null) {
+    refs.add(match[2])
+  }
+  if (refs.size === 0) return text
+  const blocks: string[] = []
+  for (const ref of refs) {
+    const fileUri = await resolveWorkspaceFile(ref)
+    if (fileUri === undefined) continue
+    try {
+      const doc = await vscode.workspace.openTextDocument(fileUri)
+      const rel = vscode.workspace.asRelativePath(fileUri, false)
+      const content = doc.getText()
+      const max = 20000
+      const snippet = content.length > max ? `${content.slice(0, max)}\n…(文件过长已截断)` : content
+      blocks.push(`\n\n<file path="${rel}">\n\`\`\`\n${snippet}\n\`\`\`\n</file>`)
+    } catch {
+      // unreadable file — leave the reference as text
+    }
+  }
+  if (blocks.length === 0) return text
+  return text + blocks.join('')
+}
+
+/** Resolve a possibly-relative @reference to a workspace file URI. */
+async function resolveWorkspaceFile(ref: string): Promise<vscode.Uri | undefined> {
+  const clean = ref.replace(/^\.\//, '').replace(/[,.!?;:)]+$/, '')
+  if (clean === '') return undefined
+  // Exact relative match first.
+  const folders = vscode.workspace.workspaceFolders ?? []
+  for (const folder of folders) {
+    const uri = vscode.Uri.joinPath(folder.uri, clean)
+    try {
+      const stat = await vscode.workspace.fs.stat(uri)
+      if (stat.type === vscode.FileType.File) return uri
+    } catch {
+      // not found — keep looking
+    }
+  }
+  // Fuzzy: unique basename match.
+  const pattern = `**/${clean.split('/').pop() ?? clean}`
+  const hits = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 10)
+  if (hits.length === 1) return hits[0]
+  if (hits.length > 0) {
+    const folder = folders[0]
+    if (folder !== undefined) {
+      for (const hit of hits) {
+        if (hit.fsPath.startsWith(folder.uri.fsPath)) return hit
+      }
+    }
+    return hits[0]
+  }
+  return undefined
+}
+
+/** Find workspace files matching a fuzzy query (for the @ picker). */
+async function findWorkspaceFiles(query: string): Promise<string[]> {
+  const folders = vscode.workspace.workspaceFolders ?? []
+  const pattern = '**/*'
+  const q = query.trim().toLowerCase()
+  try {
+    const hits = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 400)
+    const ranked = hits
+      .map((uri) => vscode.workspace.asRelativePath(uri, false))
+      .filter((p) => !p.startsWith('.git/'))
+      .filter((p) => q === '' || p.toLowerCase().includes(q))
+      .sort((a, b) => a.length - b.length)
+      .slice(0, 50)
+    return folders.length > 0 ? ranked : []
+  } catch {
+    return []
   }
 }

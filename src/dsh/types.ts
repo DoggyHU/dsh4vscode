@@ -232,4 +232,13 @@ export interface ChatSnapshot {
   baseUrl: string
   running: boolean
   escalationHint?: boolean
+  /** Routable model ids from the DSH catalog. */
+  availableModels: string[]
+  /** 'auto' (router) or an explicit catalog model id. */
+  modelChoice: string
+  /** off | high | max */
+  effort: string
+  /** Current permission preset (read-only / workspace-write / danger-full-access). */
+  permission: string
+  permissionOptions: string[]
 }

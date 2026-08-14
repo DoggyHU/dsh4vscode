@@ -325,6 +325,32 @@
     sessions = snapshot.sessions || []
     renderTabs()
     sessionBar.textContent = snapshot.cwd ? snapshot.cwd : ''
+    // Model selector: Auto + catalog models.
+    const modelSelect = document.getElementById('model-select')
+    const currentModel = snapshot.modelChoice || 'auto'
+    const desired = ['auto', ...(snapshot.availableModels || [])]
+    if (modelSelect.options.length !== desired.length + 1 || modelSelect.value !== currentModel) {
+      modelSelect.innerHTML = ''
+      const autoOpt = document.createElement('option')
+      autoOpt.value = 'auto'
+      autoOpt.textContent = 'Auto · 自动路由'
+      modelSelect.appendChild(autoOpt)
+      for (const m of desired) {
+        if (m === 'auto') continue
+        const opt = document.createElement('option')
+        opt.value = m
+        opt.textContent = m
+        modelSelect.appendChild(opt)
+      }
+      modelSelect.value = currentModel
+    }
+    const effortSelect = document.getElementById('effort-select')
+    if (effortSelect.value !== (snapshot.effort || 'high')) effortSelect.value = snapshot.effort || 'high'
+    // Permission badge.
+    const permBadge = document.getElementById('perm-badge')
+    const perm = snapshot.permission || ''
+    permBadge.textContent = perm ? `🛡 ${permLabel(perm)}` : '🛡 …'
+    permBadge.title = `当前权限：${perm || '未知'}（点击切换）`
     chatEl.innerHTML = ''
     turns.length = 0
     emptyHint.classList.toggle('hidden', snapshot.turns.length > 0)
@@ -336,8 +362,17 @@
       }
     }
     if (snapshot.running !== undefined) setRunning(snapshot.running)
-    if (snapshot.routeMode) modelSelect.value = snapshot.routeMode
+    if (snapshot.routeMode) document.getElementById('model-select').value = snapshot.modelChoice || 'auto'
     scrollToBottom(true)
+  }
+
+  function permLabel(p) {
+    switch (p) {
+      case 'read-only': return 'read-only'
+      case 'workspace-write': return 'workspace-write'
+      case 'danger-full-access': return 'full access'
+      default: return p
+    }
   }
 
   function setRunning(r) {
@@ -517,18 +552,161 @@
       case 'history':
         renderHistory(msg.items)
         break
+      case 'fileResults':
+        if (popupMode === 'at') {
+          const items = (msg.files || []).slice(0, 50)
+          if (items.length === 0) {
+            const query = msg.query || ''
+            renderPopup([query === '' ? '（工作区没有文件）' : `未找到 ${query}`], 'at')
+          } else {
+            renderPopup(items, 'at')
+          }
+        }
+        break
       default:
         break
     }
   })
 
   // ---- input ----
+  const inputPopup = document.getElementById('input-popup')
+  let popupItems = []
+  let popupIndex = 0
+  let popupMode = null // 'at' | 'slash'
+
+  const SLASH_COMMANDS = [
+    { name: '/compact', desc: '压缩会话上下文' },
+    { name: '/plan', desc: '进入/退出计划模式（off|message）' },
+    { name: '/goal', desc: '设置/查看长任务目标' },
+    { name: '/permission', desc: '切换权限预设（read-only|workspace-write|danger-full-access）' },
+    { name: '/echo', desc: '回显参数' },
+  ]
+
+  function closePopup() {
+    popupMode = null
+    popupItems = []
+    inputPopup.classList.add('hidden')
+    inputPopup.innerHTML = ''
+  }
+
+  function renderPopup(items, mode) {
+    popupMode = mode
+    popupItems = items
+    popupIndex = 0
+    if (items.length === 0) {
+      closePopup()
+      return
+    }
+    inputPopup.innerHTML = ''
+    for (let i = 0; i < items.length; i++) {
+      const row = document.createElement('div')
+      row.className = 'popup-row' + (i === 0 ? ' selected' : '')
+      if (mode === 'slash') {
+        const name = document.createElement('span')
+        name.className = 'popup-name'
+        name.textContent = items[i].name
+        const desc = document.createElement('span')
+        desc.className = 'popup-desc'
+        desc.textContent = items[i].desc || ''
+        row.appendChild(name)
+        row.appendChild(desc)
+      } else {
+        const name = document.createElement('span')
+        name.className = 'popup-name'
+        name.textContent = items[i]
+        row.appendChild(name)
+      }
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+        insertPopupItem(items[i], mode)
+      })
+      inputPopup.appendChild(row)
+    }
+    inputPopup.classList.remove('hidden')
+    updatePopupSelection()
+  }
+
+  function updatePopupSelection() {
+    const rows = inputPopup.querySelectorAll('.popup-row')
+    rows.forEach((r, i) => r.classList.toggle('selected', i === popupIndex))
+    const sel = rows[popupIndex]
+    if (sel) sel.scrollIntoView({ block: 'nearest' })
+  }
+
+  function insertPopupItem(item, mode) {
+    const val = inputEl.value
+    // Replace the trailing token (last @word or /word) with the pick.
+    const m = val.match(/(^|\s)([@/])[^\s@/]*$/)
+    if (m) {
+      const prefix = val.slice(0, m.index + m[1].length)
+      const insert = mode === 'slash' ? item.name : '@' + item
+      inputEl.value = prefix + insert + ' '
+      inputEl.focus()
+      autoGrow()
+    }
+    closePopup()
+  }
+
+  function updatePopup() {
+    const val = inputEl.value
+    const caret = inputEl.selectionStart ?? val.length
+    const before = val.slice(0, caret)
+    const m = before.match(/(^|\s)([@/])([^\s@/]*)$/)
+    if (!m) {
+      closePopup()
+      return
+    }
+    const trigger = m[2]
+    const query = m[3]
+    if (trigger === '/') {
+      const items = SLASH_COMMANDS.filter((c) => c.name.startsWith('/' + query.toLowerCase()))
+      renderPopup(items, 'slash')
+    } else if (trigger === '@') {
+      vscode.postMessage({ type: 'findFiles', query })
+      // show "searching" state briefly; results arrive async
+      if (popupMode !== 'at') {
+        renderPopup([query === '' ? '搜索中…' : `搜索 ${query}…`], 'at')
+      }
+    }
+  }
+
   function autoGrow() {
     inputEl.style.height = 'auto'
     inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + 'px'
   }
-  inputEl.addEventListener('input', autoGrow)
+  inputEl.addEventListener('input', () => {
+    autoGrow()
+    updatePopup()
+  })
   inputEl.addEventListener('keydown', (e) => {
+    if (popupMode !== null) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        popupIndex = (popupIndex + 1) % popupItems.length
+        updatePopupSelection()
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        popupIndex = (popupIndex - 1 + popupItems.length) % popupItems.length
+        updatePopupSelection()
+        return
+      }
+      if (e.key === 'Enter' && popupMode === 'at' && popupItems[0] !== undefined && popupItems[0].startsWith('搜索')) {
+        e.preventDefault()
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const item = popupItems[popupIndex]
+        if (item !== undefined) insertPopupItem(item, popupMode)
+        return
+      }
+      if (e.key === 'Escape') {
+        closePopup()
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
@@ -544,6 +722,15 @@
   }
   cancelBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'cancel', sessionId: activeSessionId })
+  })
+  modelSelect.addEventListener('change', () => {
+    vscode.postMessage({ type: 'setModelChoice', model: modelSelect.value })
+  })
+  document.getElementById('effort-select').addEventListener('change', () => {
+    vscode.postMessage({ type: 'setEffort', effort: document.getElementById('effort-select').value })
+  })
+  document.getElementById('perm-badge').addEventListener('click', () => {
+    vscode.postMessage({ type: 'cyclePermission', sessionId: activeSessionId })
   })
   modelSelect.addEventListener('change', () => vscode.postMessage({ type: 'selectMode', mode: modelSelect.value }))
   document.getElementById('btn-new-tab').addEventListener('click', () => {

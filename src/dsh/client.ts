@@ -157,6 +157,14 @@ export class DshClient {
     return this.call('session.prompt', payload)
   }
 
+  /**
+   * Execute a slash-command line (e.g. `/permission workspace-write`) against
+   * a session's command registry — the same RPC the web client uses.
+   */
+  executeCommand(sessionId: string, line: string): Promise<{ commandId: string; result: { kind: string; text?: string } }> {
+    return this.call('commands/execute', { args: { agentId: sessionId, line } })
+  }
+
   cancel(sessionId: string): Promise<{ accepted: true }> {
     return this.call('session.cancel', { sessionId })
   }

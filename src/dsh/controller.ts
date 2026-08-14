@@ -103,6 +103,12 @@ export class ChatController implements vscode.Disposable {
   private activeSessionId: string | undefined
   private cwd: string | undefined
   private routeMode: RouteMode = 'auto'
+  /** 'auto' = router, otherwise an explicit catalog model id. */
+  private modelChoice = 'auto'
+  private effort = 'high'
+  private permission = ''
+  private permissionOptions: string[] = ['read-only', 'workspace-write', 'danger-full-access']
+  private catalogModels: string[] = []
   private lastError: string | undefined
   private lastConnected = false
   private disposed = false
@@ -113,6 +119,8 @@ export class ChatController implements vscode.Disposable {
     const cfg = getDshConfig()
     this.client = new DshClient(cfg.baseUrl)
     this.routeMode = ctx.globalState.get<RouteMode>(ROUTE_MODE_KEY, 'auto')
+    this.modelChoice = ctx.globalState.get<string>('dsh.modelChoice', 'auto')
+    this.effort = ctx.globalState.get<string>('dsh.effort', 'high')
     this.client.onStatus((connected, error) => {
       this.lastConnected = connected
       this.lastError = error
@@ -131,6 +139,8 @@ export class ChatController implements vscode.Disposable {
     this.client.startStreams()
     try {
       await this.restoreSessions(this.cwd)
+      await this.refreshCatalog()
+      await this.refreshPermission()
     } catch (error) {
       this.emit({ type: 'toast', kind: 'error', text: errorMessage(error) })
     }
@@ -229,10 +239,21 @@ export class ChatController implements vscode.Disposable {
     const trimmed = text.trim()
     if (st === undefined || trimmed === '' || st.running) return
     const cfg = getDshConfig()
-    if (st.title === '新会话') {
+    if (st.title === '新会话' && !trimmed.startsWith('/')) {
       st.title = trimmed.slice(0, TITLE_PREFIX_LENGTH) + (trimmed.length > TITLE_PREFIX_LENGTH ? '…' : '')
     }
-    const model = resolveModelId(this.routeMode, trimmed, st.lastTurnFailed, cfg)
+    // Slash commands (/permission, /plan, ...) bypass model routing entirely.
+    let model: string
+    let effort: string | undefined
+    if (trimmed.startsWith('/')) {
+      model = labelFor('command')
+    } else if (this.modelChoice !== 'auto') {
+      model = this.modelChoice
+      effort = this.effort
+    } else {
+      model = resolveModelId(this.routeMode, trimmed, st.lastTurnFailed, cfg)
+      effort = undefined // router picks the per-model effort
+    }
     const turnId = st.turnSeq++
     const turn: ChatTurn = { id: turnId, items: [], status: 'running', model }
     st.turns.push(turn)
@@ -250,10 +271,31 @@ export class ChatController implements vscode.Disposable {
     this.emitState()
 
     try {
-      const selected = await this.selectModelWithFallback(model, cfg.provider)
-      turn.model = selected.model
-      this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: 'running', model: labelFor(selected.model) })
-      await this.client.prompt(st.sessionId, trimmed)
+      if (trimmed.startsWith('/')) {
+        // Slash command: executed through the host command registry, never the
+        // model. The command path emits no turn events, so finish the turn here.
+        turn.model = '命令'
+        this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: 'running', model: '命令' })
+        const result = await this.client.executeCommand(st.sessionId, trimmed)
+        const text = result.result?.text
+        if (text !== undefined && text !== '') {
+          const item: ChatItem = { kind: 'text', id: `i${st.itemSeq++}`, role: 'assistant', text }
+          turn.items.push(item)
+          this.emit({ type: 'itemAdd', sessionId: st.sessionId, turnId, item })
+        }
+        turn.status = result.result?.kind === 'error' ? 'error' : 'done'
+        if (turn.status === 'error') turn.errorMessage = text ?? '命令执行失败'
+        st.currentTurnId = undefined
+        st.pendingTurnId = undefined
+        this.setRunning(st, false)
+        this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: turn.status, model: '命令', errorMessage: turn.errorMessage })
+        this.emitState()
+      } else {
+        const selected = await this.selectModelWithFallback(model, cfg.provider, effort)
+        turn.model = selected.model
+        this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: 'running', model: labelFor(selected.model) })
+        await this.client.prompt(st.sessionId, trimmed)
+      }
     } catch (error) {
       turn.status = 'error'
       turn.errorMessage = errorMessage(error)
@@ -268,7 +310,7 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
-  private async selectModelWithFallback(model: string, provider: string): Promise<{ model: string }> {
+  private async selectModelWithFallback(model: string, provider: string, effortOverride?: string): Promise<{ model: string }> {
     const st = this.active()
     const cfg = getDshConfig()
     if (st === undefined) return { model }
@@ -285,7 +327,7 @@ export class ChatController implements vscode.Disposable {
         target = fallback
       }
     }
-    const effort = effortFor(target, cfg)
+    const effort = effortOverride ?? effortFor(target, cfg)
     try {
       await this.client.selectModel(st.sessionId, provider, target, effort)
       return { model: target }
@@ -298,6 +340,85 @@ export class ChatController implements vscode.Disposable {
       }
       throw error
     }
+  }
+
+  /** Load the routable model catalog into {@link catalogModels}. */
+  private async refreshCatalog(): Promise<void> {
+    const st = this.active()
+    if (st === undefined) return
+    try {
+      const { groups } = await this.client.models(st.sessionId)
+      const seen = new Set<string>()
+      const models: string[] = []
+      for (const g of groups) {
+        for (const m of g.models) {
+          if (!seen.has(m.id)) {
+            seen.add(m.id)
+            models.push(m.id)
+          }
+        }
+      }
+      this.catalogModels = models
+    } catch {
+      // keep previous catalog
+    }
+  }
+
+  /** Current permission preset of the active session (from its projections). */
+  private async refreshPermission(): Promise<void> {
+    try {
+      const { items } = await this.client.listSessions()
+      const st = this.active()
+      if (st === undefined) return
+      const mine = items.find((item) => item.sessionId === st.sessionId)
+      const proj = (mine as { projections?: { values?: Record<string, unknown> } } | undefined)?.projections
+      const perm = proj?.values?.permissions as { currentValue?: string; options?: { value?: string }[] } | undefined
+      if (typeof perm?.currentValue === 'string' && perm.currentValue !== '') {
+        this.permission = perm.currentValue
+      }
+      if (Array.isArray(perm?.options) && perm.options.length > 0) {
+        this.permissionOptions = perm.options.map((o) => String(o.value ?? '')).filter((v) => v !== '')
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  /** Set the model selection: 'auto' (router) or an explicit catalog model id. */
+  async setModelChoice(model: string): Promise<void> {
+    this.modelChoice = model
+    await this.ctx.globalState.update('dsh.modelChoice', model)
+    this.emit({ type: 'toast', kind: 'info', text: model === 'auto' ? '模型：自动路由' : `模型：${model}` })
+    this.emitState()
+  }
+
+  /** Set the reasoning effort (off | high | max) for manually chosen models. */
+  async setEffort(effort: string): Promise<void> {
+    if (!['off', 'high', 'max'].includes(effort)) return
+    this.effort = effort
+    await this.ctx.globalState.update('dsh.effort', effort)
+    this.emit({ type: 'toast', kind: 'info', text: `思考强度：${effort}` })
+    this.emitState()
+  }
+
+  /** Cycle the session permission preset (read-only → workspace-write → full access). */
+  async cyclePermission(sessionId?: string): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    const idx = this.permissionOptions.indexOf(this.permission)
+    const next = this.permissionOptions[(idx + 1) % this.permissionOptions.length]
+    if (next === undefined) return
+    try {
+      const result = await this.client.executeCommand(st.sessionId, `/permission ${next}`)
+      const text = result.result?.text
+      if (text !== undefined && text !== '') {
+        this.emit({ type: 'toast', kind: 'info', text: `权限：${text}` })
+      }
+    } catch (error) {
+      this.emit({ type: 'toast', kind: 'warn', text: `权限切换失败：${errorMessage(error)}` })
+    }
+    // Refresh the badge from the projections (slightly deferred for durability).
+    setTimeout(() => { void this.refreshPermission().then(() => this.emitState()) }, 500)
   }
 
   private async ensureCatalog(st: SessionState): Promise<Set<string> | undefined> {
@@ -745,6 +866,11 @@ export class ChatController implements vscode.Disposable {
       baseUrl: this.client.baseUrl,
       running: st?.running ?? false,
       escalationHint: (st?.lastTurnFailed ?? false) && this.routeMode === 'auto',
+      availableModels: this.catalogModels,
+      modelChoice: this.modelChoice,
+      effort: this.effort,
+      permission: this.permission,
+      permissionOptions: this.permissionOptions,
     }
   }
 

@@ -404,6 +404,42 @@ body {
 .btn-send:disabled { opacity: 0.45; cursor: default; }
 .btn-send:not(:disabled):hover { filter: brightness(1.1); }
 
+/* ---- input popup (@ file picker / slash commands) ---- */
+.input-popup {
+  background: var(--vscode-dropdown-background, #2d2d30);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+  z-index: 30;
+}
+.popup-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--fg);
+}
+.popup-row.selected { background: var(--vscode-list-activeSelectionBackground, var(--accent)); color: var(--vscode-list-activeSelectionForeground, #fff); }
+.popup-name { font-family: var(--mono); flex-shrink: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popup-desc { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popup-row.selected .popup-desc { color: inherit; opacity: 0.8; }
+
+/* ---- permission badge ---- */
+.perm-badge {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 1px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.perm-badge:hover { color: var(--fg); border-color: var(--accent); }
+
 /* toast */
 #toast {
   position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
