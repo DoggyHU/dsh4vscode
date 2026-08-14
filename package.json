@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "publisher": "dsh4vscode",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DoggyHU/dsh4vscode.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
