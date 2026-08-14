@@ -1,8 +1,8 @@
 {
   "name": "dsh4vscode",
   "displayName": "DSH Chat for VS Code",
-  "description": "DeepSeek Harness (DSH) inside VS Code: chat with the running DSH instance, auto-routing planning/architecture to DeepSeek Pro, grunt work to Flash, and failed debugging to Pro Max.",
-  "version": "0.6.3",
+  "description": "DeepSeek Harness (DSH) inside VS Code: chat with the running DSH instance in editor windows, mirroring the DSH Web UI's model picker and session behavior.",
+  "version": "0.6.4",
   "publisher": "dsh4vscode",
   "license": "MIT",
   "repository": {
@@ -33,7 +33,6 @@
     "onCommand:dsh.askSelection",
     "onCommand:dsh.fixSelection",
     "onCommand:dsh.newSession",
-    "onCommand:dsh.selectModel",
     "onCommand:dsh.cancel",
     "onCommand:dsh.clearChat",
     "onCommand:dsh.reconnect",
@@ -59,10 +58,6 @@
       {
         "command": "dsh.newSession",
         "title": "DSH: New Session"
-      },
-      {
-        "command": "dsh.selectModel",
-        "title": "DSH: Select Model (next message)"
       },
       {
         "command": "dsh.cancel",
@@ -135,59 +130,6 @@
           "type": "string",
           "default": "http://127.0.0.1:3080",
           "description": "Base URL of the running DSH instance (web server). The extension calls its /api RPC endpoint and /api/events.* WebSocket streams."
-        },
-        "dsh.provider": {
-          "type": "string",
-          "default": "deepseek-official",
-          "description": "Provider route id used for model selection."
-        },
-        "dsh.models": {
-          "type": "object",
-          "default": {
-            "flash": "deepseek-v4-flash",
-            "pro": "deepseek-v4-pro",
-            "proMax": "deepseek-v4-pro-max"
-          },
-          "properties": {
-            "flash": { "type": "string", "description": "Model id for grunt work (default)." },
-            "pro": { "type": "string", "description": "Model id for planning / architecture / design." },
-            "proMax": { "type": "string", "description": "Model id for escalated debugging. Falls back to pro when unavailable." }
-          },
-          "description": "Model ids used by automatic routing."
-        },
-        "dsh.reasoningEffort": {
-          "type": "string",
-          "enum": [
-            "off",
-            "high",
-            "max"
-          ],
-          "default": "high",
-          "description": "Reasoning effort applied when selecting a routed model."
-        },
-        "dsh.reasoningEfforts": {
-          "type": "object",
-          "default": {
-            "flash": "high",
-            "pro": "max",
-            "proMax": "max"
-          },
-          "properties": {
-            "flash": { "type": "string", "enum": ["off", "high", "max"], "description": "Reasoning effort for the flash model." },
-            "pro": { "type": "string", "enum": ["off", "high", "max"], "description": "Reasoning effort for the pro model." },
-            "proMax": { "type": "string", "enum": ["off", "high", "max"], "description": "Reasoning effort for the proMax model." }
-          },
-          "description": "Per-model reasoning effort used by automatic routing."
-        },
-        "dsh.autoRoute": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically route prompts: planning/architecture → pro, grunt work → flash, failed turns → proMax."
-        },
-        "dsh.escalateOnFailure": {
-          "type": "boolean",
-          "default": true,
-          "description": "After a turn ends in error, escalate the next auto-routed message to proMax (falling back to pro when the model is unavailable)."
         },
         "dsh.workspacePath": {
           "type": "string",

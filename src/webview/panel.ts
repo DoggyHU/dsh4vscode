@@ -7,7 +7,6 @@
 import * as vscode from 'vscode'
 import { ChatController } from '../dsh/controller.js'
 import { getDshConfig } from '../dsh/config.js'
-import type { RouteMode } from '../dsh/types.js'
 
 /** One editor window. */
 interface Endpoint {
@@ -121,7 +120,6 @@ export class ChatPanel implements vscode.Disposable {
   private pushInitial(endpoint: Endpoint): void {
     const conn = this.controller.getConnectionState()
     endpoint.post({ type: 'state', snapshot: this.controller.snapshotFor(endpoint.activeSessionId) })
-    endpoint.post({ type: 'mode', mode: this.controller.getMode() })
     endpoint.post({ type: 'connection', connected: conn.connected, error: conn.error })
     endpoint.post({ type: 'runState', sessionId: endpoint.activeSessionId, running: this.controller.isRunningFor(endpoint.activeSessionId) })
   }
@@ -170,11 +168,6 @@ export class ChatPanel implements vscode.Disposable {
         const query = String(message.query ?? '')
         const files = await findWorkspaceFiles(query)
         endpoint.post({ type: 'fileResults', query, files })
-        break
-      }
-      case 'selectMode': {
-        const mode = String(message.mode ?? 'auto') as RouteMode
-        if (['auto', 'flash', 'pro', 'proMax'].includes(mode)) await this.controller.setMode(mode)
         break
       }
       case 'newSession': {
@@ -291,7 +284,7 @@ export class ChatPanel implements vscode.Disposable {
     </div>
     <div class="header-row">
       <label class="model-label" for="model-select">模型</label>
-      <select id="model-select" title="模型（Auto = 自动路由）"></select>
+      <select id="model-select" title="模型（与 DSH Web UI 保持一致）"></select>
       <label class="model-label" for="effort-select">思考</label>
       <select id="effort-select" title="推理强度（手动选模型时生效）">
         <option value="off">off</option>
@@ -320,7 +313,7 @@ export class ChatPanel implements vscode.Disposable {
     <div id="empty-hint" class="empty-hint">
       <div class="empty-logo">DSH</div>
       <p>DeepSeek Harness 聊天面板</p>
-      <p class="empty-sub">规划/架构 → Pro · 杂活 → Flash · 疑难 → Pro Max</p>
+      <p class="empty-sub">模型与权限都和 DSH Web UI 保持同步</p>
     </div>
   </main>
   <footer id="dsh-footer">

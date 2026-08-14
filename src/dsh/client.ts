@@ -159,9 +159,11 @@ export class DshClient {
 
   /**
    * Execute a slash-command line (e.g. `/permission workspace-write`) against
-   * a session's command registry — the same RPC the web client uses.
+   * a session's command registry — the same RPC the web client uses. Void
+   * commands (e.g. /echo) respond with NO value at all: their feedback is the
+   * state change / session events, not a returned text.
    */
-  executeCommand(sessionId: string, line: string): Promise<{ commandId: string; result: { kind: string; text?: string } }> {
+  executeCommand(sessionId: string, line: string): Promise<{ commandId: string; result: { kind: string; text?: string } } | undefined> {
     return this.call('commands/execute', { args: { agentId: sessionId, line } })
   }
 

@@ -210,9 +210,6 @@ export interface ChatTurn {
   errorMessage?: string
 }
 
-/** What the user picked in the header selector. */
-export type RouteMode = 'auto' | 'flash' | 'pro' | 'proMax'
-
 /** One session tab's metadata. */
 export interface ChatSessionMeta {
   sessionId: string
@@ -227,18 +224,11 @@ export interface ChatSnapshot {
   cwd: string
   sessions: ChatSessionMeta[]
   turns: ChatTurn[]
-  routeMode: RouteMode
   connected: boolean
   baseUrl: string
   running: boolean
-  escalationHint?: boolean
   /** Provider-grouped catalog — the same source the DSH Web UI renders. */
   catalogGroups: CatalogGroup[]
-  /**
-   * true = plugin auto-routing (flash/pro/proMax by text); false = follow the
-   * DSH session's own current selection exactly like the Web UI does.
-   */
-  autoRoute: boolean
   /** The session's current model selection as reported by DSH (session.models). */
   modelCurrent?: ModelSelection
   /** Current permission preset (read-only / workspace-write / danger-full-access). */

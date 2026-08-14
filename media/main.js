@@ -338,19 +338,15 @@
   function capEffort(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
   /**
-   * Model selector: Auto (plugin routing) + the FULL provider-grouped
-   * catalog from session.models — same list the DSH Web UI renders. The
-   * highlighted value is DSH's own current selection (snapshot.modelCurrent).
+   * Model selector: the FULL provider-grouped catalog from session.models —
+   * same list the DSH Web UI renders. The highlighted value is DSH's own
+   * current selection for this session (snapshot.modelCurrent).
    */
   function renderModelSelect(snapshot) {
     const groups = snapshot.catalogGroups || []
     const sig = groups.map((g) => g.id + ':' + g.models.map((m) => m.id).join(',')).join('|')
     if (modelSelect.dataset.sig !== sig) {
       modelSelect.innerHTML = ''
-      const autoOpt = document.createElement('option')
-      autoOpt.value = 'auto'
-      autoOpt.textContent = 'Auto · 自动路由'
-      modelSelect.appendChild(autoOpt)
       for (const g of groups) {
         const og = document.createElement('optgroup')
         og.label = g.name
@@ -364,11 +360,10 @@
       }
       modelSelect.dataset.sig = sig
     }
-    // Highlight: auto-routing, else DSH's current selection for this session.
-    let value = 'auto'
-    if (!snapshot.autoRoute && snapshot.modelCurrent) {
+    // Highlight DSH's current selection for this session.
+    if (snapshot.modelCurrent) {
       const cur = snapshot.modelCurrent
-      value = `${cur.provider}/${cur.model}`
+      const value = `${cur.provider}/${cur.model}`
       if (!findCatalogEntry(groups, value)) {
         // Selection exists but is not in the advisory catalog — keep it
         // visible as its raw id (the Web UI does not synthesize rows either,
@@ -381,24 +376,24 @@
           modelSelect.appendChild(o)
         }
       }
+      modelSelect.value = value
     }
-    modelSelect.value = value
   }
 
   /**
    * Effort selector: the selected model's DECLARED efforts (same list the
-   * Web UI renders); '' = provider default. Disabled while auto-routing
-   * (the router decides effort per model).
+   * Web UI renders); '' = provider default. Disabled while the session's
+   * current selection is unknown.
    */
   function renderEffortSelect(snapshot) {
     const effortSel = document.getElementById('effort-select')
     const groups = snapshot.catalogGroups || []
-    const entry = !snapshot.autoRoute && snapshot.modelCurrent
+    const entry = snapshot.modelCurrent
       ? findCatalogEntry(groups, `${snapshot.modelCurrent.provider}/${snapshot.modelCurrent.model}`)
       : null
-    if (snapshot.autoRoute || !entry) {
+    if (!entry) {
       effortSel.disabled = true
-      effortSel.title = '自动路由时由路由规则决定思考强度'
+      effortSel.title = '未读取到当前模型'
       return
     }
     const efforts = entry.model.efforts || []
@@ -472,10 +467,6 @@
     cancelBtn.classList.toggle('hidden', !r)
     statusText.textContent = r ? '运行中…' : ''
   }
-
-  // Legacy route-mode events no longer touch the model picker: the picker
-  // mirrors DSH's current selection; routeMode only affects the auto-router.
-  function setMode(_mode) { /* no-op */ }
 
   function setConnection(connected, error) {
     connDot.className = `dot ${connected ? 'on' : 'off'}`
@@ -623,9 +614,6 @@
         break
       case 'runState':
         if (msg.sessionId === activeSessionId) setRunning(msg.running)
-        break
-      case 'mode':
-        setMode(msg.mode)
         break
       case 'connection':
         setConnection(msg.connected, msg.error)

@@ -4,7 +4,6 @@
 import * as vscode from 'vscode'
 import { ChatController } from './dsh/controller.js'
 import { getDshConfig } from './dsh/config.js'
-import type { RouteMode } from './dsh/types.js'
 import { ChatPanel } from './webview/panel.js'
 
 let controller: ChatController | undefined
@@ -42,9 +41,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dsh.newSession', () => {
       void controller?.newSession()
     }),
-    vscode.commands.registerCommand('dsh.selectModel', async () => {
-      await pickRouteMode(controller)
-    }),
     vscode.commands.registerCommand('dsh.cancel', () => {
       void controller?.cancel()
     }),
@@ -79,23 +75,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
 export function deactivate(): void {
   controller?.dispose()
   controller = undefined
-}
-
-async function pickRouteMode(ctrl: ChatController | undefined): Promise<void> {
-  if (ctrl === undefined) return
-  const modes: RouteMode[] = ['auto', 'flash', 'pro', 'proMax']
-  const labels: Record<RouteMode, string> = {
-    auto: 'Auto · 自动路由（规划→Pro，杂活→Flash，失败→Pro Max）',
-    flash: 'Flash · 脏活累活（默认）',
-    pro: 'Pro · 规划/架构/设计',
-    proMax: 'Pro Max · 疑难调试（最大思维深度）',
-  }
-  const current = ctrl.getMode()
-  const picked = await vscode.window.showQuickPick(
-    modes.map((m) => ({ label: labels[m], description: m === current ? '当前' : undefined, value: m })),
-    { placeHolder: '选择下一条消息使用的模型' },
-  )
-  if (picked !== undefined) await ctrl.setMode(picked.value)
 }
 
 async function askAboutSelection(
