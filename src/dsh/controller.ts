@@ -79,6 +79,12 @@ interface SessionState {
   permission: string
   /** DSH's current model selection for THIS session (session.models `current`). */
   modelCurrent?: ModelSelection
+  /**
+   * High-water mark of DSH turn numbers seen in events. Turn adoption is only
+   * allowed above this mark, so a straggler event from a FINISHED turn can
+   * never hijack the pending turn's id.
+   */
+  lastSeenTurn: number
 }
 
 function newSessionState(sessionId: string, persisted: boolean, title = '新会话'): SessionState {
@@ -87,7 +93,7 @@ function newSessionState(sessionId: string, persisted: boolean, title = '新会�
     title,
     persisted,
     turns: [],
-    turnSeq: 0,
+    turnSeq: -1,
     itemSeq: 0,
     running: false,
     currentTurnId: undefined,
@@ -97,6 +103,7 @@ function newSessionState(sessionId: string, persisted: boolean, title = '新会�
     pendingTools: new Map(),
     permission: '',
     modelCurrent: undefined,
+    lastSeenTurn: -1,
   }
 }
 
@@ -171,11 +178,20 @@ export class ChatController implements vscode.Disposable {
 
   private async loadHistory(st: SessionState): Promise<void> {
     const page = await this.client.history(st.sessionId, undefined, 300)
-    const rebuilt = rebuildTurns(page.events.map((entry) => entry.event))
-    if (rebuilt.length > 0) {
-      st.turns = rebuilt
-      st.turnSeq = Math.max(0, ...rebuilt.map((t) => t.id)) + 1
-    }
+    this.applyRebuiltTurns(st, rebuildTurns(page.events.map((entry) => entry.event)))
+  }
+
+  /**
+   * Adopt a rebuilt turn list into a session. DSH turn numbers are the
+   * positive ids; local placeholder ids and orphan-user-message fallback turns
+   * are negative. `lastSeenTurn` must reflect only the highest DSH turn number
+   * so the next live turn can be adopted above it (never derive it from the
+   * placeholder/fallback ids, or adoption would be blocked forever).
+   */
+  private applyRebuiltTurns(st: SessionState, rebuilt: ChatTurn[]): void {
+    if (rebuilt.length === 0) return
+    st.turns = rebuilt
+    st.lastSeenTurn = Math.max(-1, ...rebuilt.map((t) => (t.id >= 0 ? t.id : -1)))
   }
 
   async reconnect(): Promise<void> {
@@ -251,7 +267,10 @@ export class ChatController implements vscode.Disposable {
       }
       model = sel.model
     }
-    const turnId = st.turnSeq++
+    // Local placeholder ids are NEGATIVE so they can never collide with DSH's
+    // positive turn numbers: adoption rekeys the placeholder to the real DSH
+    // turn number, and `find(t => t.id === pendingTurnId)` stays unambiguous.
+    const turnId = st.turnSeq--
     const turn: ChatTurn = { id: turnId, items: [], status: 'running', model }
     st.turns.push(turn)
     st.pendingTurnId = turnId
@@ -550,7 +569,7 @@ export class ChatController implements vscode.Disposable {
     const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
     if (st === undefined) return
     st.turns = []
-    st.turnSeq = 0
+    st.turnSeq = -1
     st.itemSeq = 0
     st.currentTurnId = undefined
     st.pendingTurnId = undefined
@@ -628,11 +647,12 @@ export class ChatController implements vscode.Disposable {
   }
 
   private onSessionEvent(st: SessionState, event: SessionEvent): void {
-    // DSH numbers turns from 1, our local ids are a separate sequence. The
-    // first event of a fresh run carries the DSH turn number — adopt it as the
-    // turn id so subsequent events match.
+    // DSH numbers turns from 1; a monotonic high-water mark lets adoption
+    // distinguish the pending turn's first event from stragglers of old turns.
     const data = event.data as { turn?: number } | null
-    this.adoptTurnIfNeeded(st, typeof data?.turn === 'number' ? data.turn : undefined)
+    const dshTurn = typeof data?.turn === 'number' ? data.turn : undefined
+    this.adoptTurnIfNeeded(st, dshTurn)
+    if (dshTurn !== undefined && dshTurn > st.lastSeenTurn) st.lastSeenTurn = dshTurn
     switch (event.type) {
       case 'assistant/chunk':
         this.onChunk(st, event.data as AssistantChunkData)
@@ -730,15 +750,23 @@ export class ChatController implements vscode.Disposable {
   }
 
   private onTurnEnd(st: SessionState, data: TurnEndData): void {
-    const turn = this.currentTurn(st)
-    if (turn === undefined || data.turn !== turn.id) return
+    // Match by the authoritative DSH turn number, not the `currentTurnId`
+    // pointer: the pointer can already be undefined (a host-status idle flip
+    // raced ahead, or a later turn has started) while the turn still sits in
+    // `st.turns` under its adopted DSH id.
+    const turn = st.turns.find((t) => t.id === data.turn)
+    if (turn === undefined) return
     const kind = data.reason?.kind ?? 'completed'
     turn.status = mapTurnStatus(kind)
     if (kind === 'error') {
       turn.errorMessage = String((data.reason.error as { message?: string } | undefined)?.message ?? '')
     }
-    st.currentTurnId = undefined
-    this.setRunning(st, false)
+    // Clear run-pointers only if they still reference THIS turn; a newer turn
+    // may already own them.
+    const isLive = st.currentTurnId === turn.id || st.pendingTurnId === turn.id
+    if (st.currentTurnId === turn.id) st.currentTurnId = undefined
+    if (st.pendingTurnId === turn.id) st.pendingTurnId = undefined
+    if (isLive) this.setRunning(st, false)
     this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId: turn.id, status: turn.status, model: labelFor(turn.model), errorMessage: turn.errorMessage })
     this.emitState()
   }
@@ -776,9 +804,17 @@ export class ChatController implements vscode.Disposable {
   /**
    * Rekey the freshly-created local turn to the DSH turn number carried by the
    * first event of the run, so event matching (`data.turn === turn.id`) works.
+   *
+   * CRITICAL: only adopt a turn number ABOVE the session's high-water mark.
+   * Events of an already-finished turn can arrive after the user has sent the
+   * next prompt (stream lag, host-status flip race). Without the guard such a
+   * straggler would rekey the NEW pending turn to the OLD turn's number, and
+   * every subsequent event of the new turn (`data.turn !== turn.id`) would be
+   * dropped — the chat shows the message stuck at "进行中" with no content.
    */
   private adoptTurnIfNeeded(st: SessionState, dshTurn: number | undefined): void {
     if (st.pendingTurnId === undefined || dshTurn === undefined) return
+    if (dshTurn <= st.lastSeenTurn) return
     const turn = st.turns.find((t) => t.id === st.pendingTurnId)
     if (turn === undefined) return
     turn.id = dshTurn
@@ -819,24 +855,27 @@ export class ChatController implements vscode.Disposable {
 
   private finishTurnIfRunning(st: SessionState): void {
     if (!st.running) return
-    const turnId = st.currentTurnId ?? st.pendingTurnId
-    if (turnId === undefined) return
-    const wasPending = st.pendingTurnId !== undefined
+    const turn = st.currentTurnId !== undefined
+      ? this.currentTurn(st)
+      : (st.pendingTurnId !== undefined ? st.turns.find((t) => t.id === st.pendingTurnId) : undefined)
+    if (turn === undefined) return
     const sessionId = st.sessionId
     // The host idle flip usually lands just before the turn's own turn/end
     // event (which carries the authoritative reason: aborted/error/completed).
     // Defer the cleanup + fallback so turn/end can run its normal path first.
+    // Capture the turn OBJECT — never just its id — so a later adoption rekey
+    // cannot detach the timer from its turn, and only clear run-pointers that
+    // still reference THIS turn (a newer turn may have taken them over).
     setTimeout(() => {
       const cur = this.sessions.get(sessionId)
       if (cur === undefined) return
-      cur.currentTurnId = undefined
-      cur.pendingTurnId = undefined
-      const turn = cur.turns.find((t) => t.id === turnId)
-      if (turn !== undefined && turn.status === 'running') {
+      if (cur.currentTurnId === turn.id) cur.currentTurnId = undefined
+      if (cur.pendingTurnId === turn.id) cur.pendingTurnId = undefined
+      if (turn.status === 'running') {
         turn.status = 'done'
         this.emit({ type: 'turnStatus', sessionId, turnId: turn.id, status: 'done', model: labelFor(turn.model) })
+        this.emitState()
       }
-      if (wasPending) this.emitState()
     }, 2500)
     this.setRunning(st, false)
   }
@@ -917,11 +956,7 @@ export class ChatController implements vscode.Disposable {
     try {
       const page = await this.client.history(sessionId, undefined, 300)
       st = newSessionState(sessionId, true)
-      const rebuilt = rebuildTurns(page.events.map((entry) => entry.event))
-      if (rebuilt.length > 0) {
-        st.turns = rebuilt
-        st.turnSeq = Math.max(0, ...rebuilt.map((t) => t.id)) + 1
-      }
+      this.applyRebuiltTurns(st, rebuildTurns(page.events.map((entry) => entry.event)))
       this.sessions.set(sessionId, st)
       await this.refreshPermission(sessionId)
       await this.refreshCatalog(sessionId)
@@ -1012,14 +1047,16 @@ function rebuildTurns(events: SessionEvent[]): ChatTurn[] {
   const turns = new Map<number, ChatTurn>()
   const order: number[] = []
   const pendingToolResult = new Map<string, { state: 'done' | 'error'; resultText?: string; isError?: boolean }>()
-  let fallbackId = 1000000
+  // Fallback (orphan user-message) turns get negative ids so they can never be
+  // mistaken for DSH turn numbers when computing the session high-water mark.
+  let fallbackId = -1000000
   let lastModel: string | undefined
   // user/message events carry no turn number; buffer direct-human ones and
   // attach them to the next turn that opens (they precede their turn in the log).
   let pendingUserItems: { id: string; text: string }[] = []
 
   const turnFor = (turnNum: number | undefined): ChatTurn => {
-    const id = turnNum ?? fallbackId++
+    const id = turnNum ?? fallbackId--
     let turn = turns.get(id)
     if (turn === undefined) {
       turn = { id, items: [], status: 'done', model: lastModel ?? 'auto' }
@@ -1137,7 +1174,7 @@ function rebuildTurns(events: SessionEvent[]): ChatTurn[] {
 
   // User messages never followed by a turn land in a fallback turn.
   if (pendingUserItems.length > 0) {
-    const fallback: ChatTurn = { id: fallbackId++, items: [], status: 'done', model: 'auto' }
+    const fallback: ChatTurn = { id: fallbackId--, items: [], status: 'done', model: 'auto' }
     for (const u of pendingUserItems) {
       fallback.items.push({ kind: 'text', id: u.id, role: 'user', text: u.text })
     }

@@ -20,11 +20,34 @@ export class ChatPanel implements vscode.Disposable {
   private windows = new Map<string, Endpoint>() // key: window id
   private windowSeq = 0
   private controllerDisposable: (() => void) | undefined
+  /** Most recent non-empty editor selection, remembered across focus changes. */
+  private capturedSelection: { uri: vscode.Uri; selection: vscode.Selection } | undefined
+  /** URI of the most recently active text editor (the "current file"). */
+  private lastActiveUri: vscode.Uri | undefined
+  private selectionTracker: vscode.Disposable | undefined
+  private activeEditorTracker: vscode.Disposable | undefined
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly controller: ChatController,
-  ) {}
+  ) {
+    // window.activeTextEditor is undefined once the chat webview has focus, so
+    // remember both the current file and the latest non-empty selection as they
+    // are made, and clear the selection when its document collapses to a cursor.
+    this.activeEditorTracker = vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor !== undefined) this.lastActiveUri = editor.document.uri
+    })
+    this.selectionTracker = vscode.window.onDidChangeTextEditorSelection((e) => {
+      const sel = e.textEditor.selection
+      if (sel.isEmpty) {
+        if (this.capturedSelection !== undefined && this.capturedSelection.uri.toString() === e.textEditor.document.uri.toString()) {
+          this.capturedSelection = undefined
+        }
+        return
+      }
+      this.capturedSelection = { uri: e.textEditor.document.uri, selection: sel }
+    })
+  }
 
   /** Open a new independent chat window (always backed by a NEW session). */
   async newWindow(): Promise<void> {
@@ -132,9 +155,9 @@ export class ChatPanel implements vscode.Disposable {
       case 'send': {
         const raw = String(message.text ?? '')
         if (raw.trim() !== '') {
-          // Claude Code parity: the active editor selection rides along with
-          // the message, so "把这行替换成…" works without extra steps.
-          const withSelection = await attachActiveSelection(raw)
+          // Claude Code parity: the current file + active selection ride along
+          // with the message, so "把这行替换成…" works without extra steps.
+          const withSelection = this.attachEditorContext(raw)
           const expanded = await expandFileRefs(withSelection)
           await this.controller.send(expanded, sessionId)
         }
@@ -339,10 +362,80 @@ export class ChatPanel implements vscode.Disposable {
   dispose(): void {
     this.controllerDisposable?.()
     this.controllerDisposable = undefined
+    this.selectionTracker?.dispose()
+    this.selectionTracker = undefined
+    this.activeEditorTracker?.dispose()
+    this.activeEditorTracker = undefined
     for (const ep of this.windows.values()) {
       for (const d of ep.disposables) d.dispose()
     }
     this.windows.clear()
+  }
+
+  /**
+   * Attach the current editor context to an outgoing message — the Claude Code
+   * affordance: the agent should know which file is open and, when the user has
+   * a selection, the exact selected lines. Falls back to remembered state when
+   * the webview (not a text editor) has focus, since `window.activeTextEditor`
+   * is undefined then.
+   */
+  private attachEditorContext(text: string): string {
+    let doc: vscode.TextDocument | undefined
+    let selection: vscode.Selection | undefined
+    const editor = vscode.window.activeTextEditor
+    const captured = this.capturedSelection
+
+    // Resolve a selection first (it also identifies the file).
+    if (editor !== undefined && !editor.selection.isEmpty) {
+      doc = editor.document
+      selection = editor.selection
+    } else if (captured !== undefined && !captured.selection.isEmpty) {
+      doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === captured.uri.toString())
+      selection = doc !== undefined ? captured.selection : undefined
+    } else {
+      // The webview holds focus (activeTextEditor is undefined) and no capture
+      // happened yet; still honor any visible editor with a non-empty selection.
+      for (const visible of vscode.window.visibleTextEditors) {
+        if (!visible.selection.isEmpty) {
+          doc = visible.document
+          selection = visible.selection
+          break
+        }
+      }
+    }
+
+    // No selection: fall back to the current/last-active file alone.
+    if (doc === undefined) {
+      if (editor !== undefined) doc = editor.document
+      else if (this.lastActiveUri !== undefined) {
+        doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === this.lastActiveUri!.toString())
+      }
+    }
+    if (doc === undefined) return text
+
+    const rel = vscode.workspace.asRelativePath(doc.uri, false)
+    const lines = [
+      '',
+      '以下是你发送这条消息时，用户在 VS Code 编辑器中的上下文（请优先针对这个文件/选区回复本条消息）：',
+    ]
+
+    if (selection !== undefined && !selection.isEmpty) {
+      const selected = doc.getText(selection)
+      if (selected.trim() !== '') {
+        const range = `${selection.start.line + 1}-${selection.end.line + 1}`
+        const snippet = selected.length > SELECTION_MAX_CHARS
+          ? `${selected.slice(0, SELECTION_MAX_CHARS)}\n…(选区过长已截断)`
+          : selected
+        lines.push(`文件：\`${rel}\`（第 ${range} 行）`)
+        lines.push('```' + doc.languageId, snippet, '```')
+      } else {
+        lines.push(`文件：\`${rel}\``)
+      }
+    } else {
+      lines.push(`当前打开的文件：\`${rel}\``)
+    }
+
+    return text + lines.join('\n')
   }
 }
 
@@ -360,35 +453,6 @@ const FILE_REF_RE = /(^|\s)@([^\s@]+)/g
 
 /** Longest selection that rides along with a message before truncation. */
 const SELECTION_MAX_CHARS = 20000
-
-/**
- * Attach the active editor's selection to an outgoing message — the same
- * affordance Claude Code has: the user selects a line in the editor, then
- * asks "把这行替换成…" in chat, and the agent can see the exact text,
- * its file, and its line range. No-op when nothing is selected.
- */
-async function attachActiveSelection(text: string): Promise<string> {
-  const editor = vscode.window.activeTextEditor
-  if (editor === undefined) return text
-  const selection = editor.selection
-  if (selection.isEmpty) return text
-  const selected = editor.document.getText(selection)
-  if (selected.trim() === '') return text
-  const rel = vscode.workspace.asRelativePath(editor.document.uri, false)
-  const range = `${selection.start.line + 1}-${selection.end.line + 1}`
-  const snippet = selected.length > SELECTION_MAX_CHARS
-    ? `${selected.slice(0, SELECTION_MAX_CHARS)}\n…(选区过长已截断)`
-    : selected
-  const block = [
-    '',
-    '以下是你发送这条消息时，用户在 VS Code 编辑器中选中的内容（请针对这段内容回复本条消息）：',
-    `文件：\`${rel}\`（第 ${range} 行）`,
-    '```' + editor.document.languageId,
-    snippet,
-    '```',
-  ].join('\n')
-  return text + block
-}
 
 /**
  * Expand `@path` references in a message into inline file content blocks.
