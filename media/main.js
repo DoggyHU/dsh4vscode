@@ -319,33 +319,122 @@
   }
 
   // ---- snapshot render ----
+  /** Find one catalog model entry by `provider/model` (or legacy bare id). */
+  function findCatalogEntry(groups, choice) {
+    if (!choice) return null
+    const slash = choice.indexOf('/')
+    if (slash > 0) {
+      const g = groups.find((x) => x.id === choice.slice(0, slash))
+      const m = g && g.models.find((x) => x.id === choice.slice(slash + 1))
+      return m ? { group: g, model: m } : null
+    }
+    for (const g of groups) {
+      const m = g.models.find((x) => x.id === choice)
+      if (m) return { group: g, model: m }
+    }
+    return null
+  }
+
+  function capEffort(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
+
+  /**
+   * Model selector: Auto (plugin routing) + the FULL provider-grouped
+   * catalog from session.models — same list the DSH Web UI renders. The
+   * highlighted value is DSH's own current selection (snapshot.modelCurrent).
+   */
+  function renderModelSelect(snapshot) {
+    const groups = snapshot.catalogGroups || []
+    const sig = groups.map((g) => g.id + ':' + g.models.map((m) => m.id).join(',')).join('|')
+    if (modelSelect.dataset.sig !== sig) {
+      modelSelect.innerHTML = ''
+      const autoOpt = document.createElement('option')
+      autoOpt.value = 'auto'
+      autoOpt.textContent = 'Auto · 自动路由'
+      modelSelect.appendChild(autoOpt)
+      for (const g of groups) {
+        const og = document.createElement('optgroup')
+        og.label = g.name
+        for (const m of g.models) {
+          const o = document.createElement('option')
+          o.value = `${g.id}/${m.id}`
+          o.textContent = m.name || m.id
+          og.appendChild(o)
+        }
+        modelSelect.appendChild(og)
+      }
+      modelSelect.dataset.sig = sig
+    }
+    // Highlight: auto-routing, else DSH's current selection for this session.
+    let value = 'auto'
+    if (!snapshot.autoRoute && snapshot.modelCurrent) {
+      const cur = snapshot.modelCurrent
+      value = `${cur.provider}/${cur.model}`
+      if (!findCatalogEntry(groups, value)) {
+        // Selection exists but is not in the advisory catalog — keep it
+        // visible as its raw id (the Web UI does not synthesize rows either,
+        // but a stale pick must still show something truthful).
+        let o = Array.from(modelSelect.options).find((x) => x.value === value)
+        if (!o) {
+          o = document.createElement('option')
+          o.value = value
+          o.textContent = value
+          modelSelect.appendChild(o)
+        }
+      }
+    }
+    modelSelect.value = value
+  }
+
+  /**
+   * Effort selector: the selected model's DECLARED efforts (same list the
+   * Web UI renders); '' = provider default. Disabled while auto-routing
+   * (the router decides effort per model).
+   */
+  function renderEffortSelect(snapshot) {
+    const effortSel = document.getElementById('effort-select')
+    const groups = snapshot.catalogGroups || []
+    const entry = !snapshot.autoRoute && snapshot.modelCurrent
+      ? findCatalogEntry(groups, `${snapshot.modelCurrent.provider}/${snapshot.modelCurrent.model}`)
+      : null
+    if (snapshot.autoRoute || !entry) {
+      effortSel.disabled = true
+      effortSel.title = '自动路由时由路由规则决定思考强度'
+      return
+    }
+    const efforts = entry.model.efforts || []
+    const defaultEffort = entry.model.defaultEffort
+    const sig = efforts.join(',') + '|' + (defaultEffort || '')
+    if (effortSel.dataset.sig !== sig) {
+      effortSel.innerHTML = ''
+      if (!defaultEffort) {
+        const o = document.createElement('option')
+        o.value = ''
+        o.textContent = '默认'
+        effortSel.appendChild(o)
+      }
+      for (const e of efforts) {
+        const o = document.createElement('option')
+        o.value = e
+        o.textContent = capEffort(e)
+        effortSel.appendChild(o)
+      }
+      effortSel.dataset.sig = sig
+    }
+    const cur = snapshot.modelCurrent ? snapshot.modelCurrent.reasoningEffort : undefined
+    const value = efforts.includes(cur) ? cur : (defaultEffort || '')
+    effortSel.value = value
+    effortSel.disabled = false
+    effortSel.title = '推理强度'
+  }
+
   function renderState(snapshot) {
     lastSnapshot = snapshot
     activeSessionId = snapshot.activeSessionId
     sessions = snapshot.sessions || []
     renderTabs()
     sessionBar.textContent = snapshot.cwd ? snapshot.cwd : ''
-    // Model selector: Auto + catalog models.
-    const modelSelect = document.getElementById('model-select')
-    const currentModel = snapshot.modelChoice || 'auto'
-    const desired = ['auto', ...(snapshot.availableModels || [])]
-    if (modelSelect.options.length !== desired.length + 1 || modelSelect.value !== currentModel) {
-      modelSelect.innerHTML = ''
-      const autoOpt = document.createElement('option')
-      autoOpt.value = 'auto'
-      autoOpt.textContent = 'Auto · 自动路由'
-      modelSelect.appendChild(autoOpt)
-      for (const m of desired) {
-        if (m === 'auto') continue
-        const opt = document.createElement('option')
-        opt.value = m
-        opt.textContent = m
-        modelSelect.appendChild(opt)
-      }
-      modelSelect.value = currentModel
-    }
-    const effortSelect = document.getElementById('effort-select')
-    if (effortSelect.value !== (snapshot.effort || 'high')) effortSelect.value = snapshot.effort || 'high'
+    renderModelSelect(snapshot)
+    renderEffortSelect(snapshot)
     // Permission badge.
     const permBadge = document.getElementById('perm-badge')
     const perm = snapshot.permission || ''
@@ -365,7 +454,6 @@
       }
     }
     if (snapshot.running !== undefined) setRunning(snapshot.running)
-    if (snapshot.routeMode) document.getElementById('model-select').value = snapshot.modelChoice || 'auto'
     scrollToBottom(true)
   }
 
@@ -385,7 +473,9 @@
     statusText.textContent = r ? '运行中…' : ''
   }
 
-  function setMode(mode) { modelSelect.value = mode }
+  // Legacy route-mode events no longer touch the model picker: the picker
+  // mirrors DSH's current selection; routeMode only affects the auto-router.
+  function setMode(_mode) { /* no-op */ }
 
   function setConnection(connected, error) {
     connDot.className = `dot ${connected ? 'on' : 'off'}`
@@ -728,6 +818,11 @@
   })
   modelSelect.addEventListener('change', () => {
     vscode.postMessage({ type: 'setModelChoice', model: modelSelect.value })
+  })
+  // Web UI parity: the picker reloads its directory every time it opens, so
+  // providers/models DSH added since the last open show up immediately.
+  modelSelect.addEventListener('mousedown', () => {
+    vscode.postMessage({ type: 'refreshCatalog', sessionId: activeSessionId })
   })
   document.getElementById('effort-select').addEventListener('change', () => {
     vscode.postMessage({ type: 'setEffort', effort: document.getElementById('effort-select').value })

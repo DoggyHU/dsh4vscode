@@ -13,12 +13,14 @@ import { resolveModelId, routeModeLabel } from './router.js'
 import type {
   AssistantChunkData,
   AssistantMessageData,
+  CatalogGroup,
   ChatItem,
   ChatSessionMeta,
   ChatSnapshot,
   ChatTurn,
   ContentBlock,
   HostFrame,
+  ModelSelection,
   MuxFrame,
   RouteMode,
   SessionEvent,
@@ -78,6 +80,8 @@ interface SessionState {
   pendingTools: Map<string, string> // callId -> itemId
   /** Current permission preset of THIS session (from its projections). */
   permission: string
+  /** DSH's current model selection for THIS session (session.models `current`). */
+  modelCurrent?: ModelSelection
 }
 
 function newSessionState(sessionId: string, persisted: boolean, title = '新会话'): SessionState {
@@ -96,6 +100,7 @@ function newSessionState(sessionId: string, persisted: boolean, title = '新会�
     currentStep: -1,
     pendingTools: new Map(),
     permission: '',
+    modelCurrent: undefined,
   }
 }
 
@@ -106,11 +111,11 @@ export class ChatController implements vscode.Disposable {
   private activeSessionId: string | undefined
   private cwd: string | undefined
   private routeMode: RouteMode = 'auto'
-  /** 'auto' = router, otherwise an explicit catalog model id. */
-  private modelChoice = 'auto'
-  private effort = 'high'
+  /** true = plugin auto-routing; false = follow the DSH session's current selection. */
+  private autoRoute = true
+  /** Provider-grouped model catalog (mirrors the DSH Web UI picker). */
+  private catalogGroups: CatalogGroup[] = []
   private permissionOptions: string[] = ['read-only', 'workspace-write', 'danger-full-access']
-  private catalogModels: string[] = []
   private lastError: string | undefined
   private lastConnected = false
   private disposed = false
@@ -121,8 +126,12 @@ export class ChatController implements vscode.Disposable {
     const cfg = getDshConfig()
     this.client = new DshClient(cfg.baseUrl)
     this.routeMode = ctx.globalState.get<RouteMode>(ROUTE_MODE_KEY, 'auto')
-    this.modelChoice = ctx.globalState.get<string>('dsh.modelChoice', 'auto')
-    this.effort = ctx.globalState.get<string>('dsh.effort', 'high')
+    // Legacy migration: the old design persisted the model pick itself
+    // ('dsh.modelChoice' = 'auto' or a bare model id). The new design follows
+    // the DSH session's current selection (the Web UI's single source of
+    // truth); only the auto-routing switch survives as plugin state.
+    const legacyChoice = ctx.globalState.get<string>('dsh.modelChoice', 'auto')
+    this.autoRoute = legacyChoice === 'auto'
     this.client.onStatus((connected, error) => {
       this.lastConnected = connected
       this.lastError = error
@@ -245,16 +254,26 @@ export class ChatController implements vscode.Disposable {
       st.title = trimmed.slice(0, TITLE_PREFIX_LENGTH) + (trimmed.length > TITLE_PREFIX_LENGTH ? '…' : '')
     }
     // Slash commands (/permission, /plan, ...) bypass model routing entirely.
+    // Manual mode does NOT re-select: the DSH session's recorded current
+    // selection governs prompt assembly — the exact path the Web UI takes.
     let model: string
     let effort: string | undefined
+    let provider = cfg.provider
     if (trimmed.startsWith('/')) {
       model = labelFor('command')
-    } else if (this.modelChoice !== 'auto') {
-      model = this.modelChoice
-      effort = this.effort
+    } else if (!this.autoRoute) {
+      if (st.modelCurrent === undefined) await this.refreshCatalog(st.sessionId)
+      const sel = st.modelCurrent
+      if (sel === undefined) {
+        this.emit({ type: 'toast', kind: 'error', text: '无法读取当前模型选择，请重试或切换模型' })
+        return
+      }
+      model = sel.model
+      provider = sel.provider
     } else {
       model = resolveModelId(this.routeMode, trimmed, st.lastTurnFailed, cfg)
       effort = undefined // router picks the per-model effort
+      provider = st.modelCurrent?.provider ?? cfg.provider
     }
     const turnId = st.turnSeq++
     const turn: ChatTurn = { id: turnId, items: [], status: 'running', model }
@@ -292,8 +311,13 @@ export class ChatController implements vscode.Disposable {
         this.setRunning(st, false)
         this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: turn.status, model: '命令', errorMessage: turn.errorMessage })
         this.emitState()
+      } else if (!this.autoRoute) {
+        // Manual: prompt only — DSH assembles the turn from the session's
+        // recorded current selection, exactly like the Web UI.
+        this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: 'running', model: labelFor(model) })
+        await this.client.prompt(st.sessionId, trimmed)
       } else {
-        const selected = await this.selectModelWithFallback(model, cfg.provider, effort)
+        const selected = await this.selectModelWithFallback(model, provider, effort)
         turn.model = selected.model
         this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: 'running', model: labelFor(selected.model) })
         await this.client.prompt(st.sessionId, trimmed)
@@ -344,26 +368,60 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
-  /** Load the routable model catalog into {@link catalogModels}. */
-  private async refreshCatalog(): Promise<void> {
-    const st = this.active()
+  /**
+   * Load the provider-grouped model catalog (same source the DSH Web UI
+   * renders) into {@link catalogGroups}, and record the given session's
+   * current selection (session.models `current`) — the single fact the Web UI
+   * highlights. Public so windows refresh it on open: providers configured
+   * after the extension started, and models picked in the Web UI, show up.
+   */
+  async refreshCatalog(sessionId?: string): Promise<void> {
+    const targetId = sessionId !== undefined ? sessionId : this.activeSessionId
+    const st = targetId !== undefined ? this.sessions.get(targetId) : undefined
     if (st === undefined) return
     try {
-      const { groups } = await this.client.models(st.sessionId)
-      const seen = new Set<string>()
-      const models: string[] = []
-      for (const g of groups) {
-        for (const m of g.models) {
-          if (!seen.has(m.id)) {
-            seen.add(m.id)
-            models.push(m.id)
-          }
-        }
+      const value = await this.client.models(st.sessionId)
+      this.catalogGroups = value.groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        models: g.models.map((m) => ({
+          id: m.id,
+          name: m.name ?? m.id,
+          efforts: (m.reasoning?.efforts ?? []).map((e) => e.id),
+          ...(m.reasoning?.defaultEffort === undefined ? {} : { defaultEffort: m.reasoning.defaultEffort }),
+        })),
+      }))
+      st.modelCurrent = {
+        provider: value.current.provider,
+        model: value.current.model,
+        ...(value.current.reasoningEffort === undefined ? {} : { reasoningEffort: value.current.reasoningEffort }),
       }
-      this.catalogModels = models
     } catch {
-      // keep previous catalog
+      // keep previous catalog / selection
     }
+  }
+
+  /** Look up `provider/model` (or a legacy bare model id) in the catalog. */
+  private catalogEntry(choice: string): { provider: string; model: string; efforts: string[]; defaultEffort?: string } | undefined {
+    if (choice === '' || choice === 'auto') return undefined
+    const slash = choice.indexOf('/')
+    if (slash > 0) {
+      const provider = choice.slice(0, slash)
+      const model = choice.slice(slash + 1)
+      const group = this.catalogGroups.find((g) => g.id === provider)
+      const entry = group?.models.find((m) => m.id === model)
+      return entry === undefined
+        ? { provider, model, efforts: [], defaultEffort: undefined }
+        : { provider, model, efforts: entry.efforts, defaultEffort: entry.defaultEffort }
+    }
+    // Legacy stored value: bare model id — first matching group wins.
+    for (const group of this.catalogGroups) {
+      const entry = group.models.find((m) => m.id === choice)
+      if (entry !== undefined) {
+        return { provider: group.id, model: choice, efforts: entry.efforts, defaultEffort: entry.defaultEffort }
+      }
+    }
+    return undefined
   }
 
   /**
@@ -390,20 +448,76 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
-  /** Set the model selection: 'auto' (router) or an explicit catalog model id. */
-  async setModelChoice(model: string): Promise<void> {
-    this.modelChoice = model
-    await this.ctx.globalState.update('dsh.modelChoice', model)
-    this.emit({ type: 'toast', kind: 'info', text: model === 'auto' ? '模型：自动路由' : `模型：${model}` })
+  /**
+   * Set the model selection, mirroring the Web UI picker exactly:
+   * 'auto' flips the plugin's own auto-routing switch; a `provider/model`
+   * pick calls session.selectModel with the model's declared default effort
+   * (the DSH-side switch ALSO becomes the deployment default — the Web UI's
+   * inheritance behavior), then records the resolved selection on the session.
+   * @param choice - 'auto' or `provider/model`.
+   * @param sessionId - the window's session; omitted = controller-active.
+   */
+  async setModelChoice(choice: string, sessionId?: string): Promise<void> {
+    if (choice === '' || choice === 'auto') {
+      this.autoRoute = true
+      await this.ctx.globalState.update('dsh.modelChoice', 'auto')
+      this.emit({ type: 'toast', kind: 'info', text: '模型：自动路由' })
+      this.emitState()
+      return
+    }
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    const entry = this.catalogEntry(choice)
+    if (entry === undefined) {
+      this.emit({ type: 'toast', kind: 'warn', text: `模型目录中找不到：${choice}` })
+      return
+    }
+    this.autoRoute = false
+    await this.ctx.globalState.update('dsh.modelChoice', choice)
+    // Web UI parity: switching to a (different) model carries the model's
+    // declared default effort; DSH validates effort ids against the adapter.
+    const effort = entry.defaultEffort
+    try {
+      const res = await this.client.selectModel(st.sessionId, entry.provider, entry.model, effort)
+      st.modelCurrent = {
+        provider: res.selected.provider,
+        model: res.selected.model,
+        ...(res.selected.reasoningEffort === undefined ? {} : { reasoningEffort: res.selected.reasoningEffort }),
+      }
+      this.emit({ type: 'toast', kind: 'info', text: `模型：${entry.model}` })
+    } catch (error) {
+      this.emit({ type: 'toast', kind: 'warn', text: `模型切换失败：${errorMessage(error)}` })
+    }
     this.emitState()
   }
 
-  /** Set the reasoning effort (off | high | max) for manually chosen models. */
-  async setEffort(effort: string): Promise<void> {
-    if (!['off', 'high', 'max'].includes(effort)) return
-    this.effort = effort
-    await this.ctx.globalState.update('dsh.effort', effort)
-    this.emit({ type: 'toast', kind: 'info', text: `思考强度：${effort}` })
+  /**
+   * Set the reasoning effort of the session's current model. The accepted
+   * values are whatever the model declares (the Web UI renders the same list);
+   * DSH itself validates the id against the adapter. '' = provider default.
+   * @param effort - an effort id declared by the current model, or ''.
+   * @param sessionId - the window's session; omitted = controller-active.
+   */
+  async setEffort(effort: string, sessionId?: string): Promise<void> {
+    if (this.autoRoute) {
+      this.emit({ type: 'toast', kind: 'info', text: '自动路由时思考强度由路由规则决定' })
+      return
+    }
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    const cur = st.modelCurrent
+    if (cur === undefined) return
+    try {
+      const res = await this.client.selectModel(st.sessionId, cur.provider, cur.model, effort === '' ? undefined : effort)
+      st.modelCurrent = {
+        provider: res.selected.provider,
+        model: res.selected.model,
+        ...(res.selected.reasoningEffort === undefined ? {} : { reasoningEffort: res.selected.reasoningEffort }),
+      }
+      this.emit({ type: 'toast', kind: 'info', text: effort === '' ? '思考强度：Provider 默认' : `思考强度：${effort}` })
+    } catch (error) {
+      this.emit({ type: 'toast', kind: 'warn', text: `思考强度切换失败：${errorMessage(error)}` })
+    }
     this.emitState()
   }
 
@@ -493,6 +607,10 @@ export class ChatController implements vscode.Disposable {
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId
       await this.refreshPermission(st.sessionId)
+      // Read the new session's current selection: DSH seeds it from the
+      // deployment default — the last pick made anywhere (Web UI or plugin)
+      // is what this new dialog inherits. Same behavior as the Web UI.
+      await this.refreshCatalog(st.sessionId)
       this.emitState()
       this.emit({ type: 'toast', kind: 'info', text: '已新建会话' })
       return created.sessionId
@@ -500,34 +618,6 @@ export class ChatController implements vscode.Disposable {
       this.emit({ type: 'toast', kind: 'error', text: `新建会话失败：${errorMessage(error)}` })
       return undefined
     }
-  }
-
-  /**
-   * Switch the active tab to another session. If it is not already in memory
-   * (e.g. picked from history), load its turns from the DSH instance first.
-   */
-  async switchSession(sessionId: string): Promise<void> {
-    if (sessionId === this.activeSessionId) return
-    let st = this.sessions.get(sessionId)
-    if (st === undefined) {
-      try {
-        const page = await this.client.history(sessionId, undefined, 300)
-        st = newSessionState(sessionId, true)
-        const rebuilt = rebuildTurns(page.events.map((entry) => entry.event))
-        if (rebuilt.length > 0) {
-          st.turns = rebuilt
-          st.turnSeq = Math.max(0, ...rebuilt.map((t) => t.id)) + 1
-          st.lastTurnFailed = rebuilt[rebuilt.length - 1]?.status === 'error'
-        }
-        this.sessions.set(sessionId, st)
-      } catch (error) {
-        this.emit({ type: 'toast', kind: 'error', text: `加载会话失败：${errorMessage(error)}` })
-        return
-      }
-    }
-    this.activeSessionId = sessionId
-    await this.refreshPermission(sessionId)
-    this.emitState()
   }
 
   /** Sessions of this workspace available in the DSH instance (history picker). */
@@ -902,9 +992,9 @@ export class ChatController implements vscode.Disposable {
       baseUrl: this.client.baseUrl,
       running: st?.running ?? false,
       escalationHint: (st?.lastTurnFailed ?? false) && this.routeMode === 'auto',
-      availableModels: this.catalogModels,
-      modelChoice: this.modelChoice,
-      effort: this.effort,
+      catalogGroups: this.catalogGroups,
+      autoRoute: this.autoRoute,
+      modelCurrent: st?.modelCurrent,
       permission: st?.permission ?? '',
       permissionOptions: this.permissionOptions,
     }
@@ -917,9 +1007,10 @@ export class ChatController implements vscode.Disposable {
   async ensureSessionLoaded(sessionId: string): Promise<boolean> {
     let st = this.sessions.get(sessionId)
     if (st !== undefined) {
-      // In memory but its permission may never have been read (e.g. sessions
-      // loaded before this window opened). Fill it in so the badge is right.
+      // In memory but its permission/model selection may never have been read
+      // (e.g. sessions loaded before this window opened). Fill them in.
       if (st.permission === '') await this.refreshPermission(sessionId)
+      if (st.modelCurrent === undefined) await this.refreshCatalog(sessionId)
       return true
     }
     try {
@@ -933,6 +1024,7 @@ export class ChatController implements vscode.Disposable {
       }
       this.sessions.set(sessionId, st)
       await this.refreshPermission(sessionId)
+      await this.refreshCatalog(sessionId)
       return true
     } catch {
       return false

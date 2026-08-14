@@ -44,6 +44,10 @@ export class ChatPanel implements vscode.Disposable {
       }
     }
     await this.controller.ensureSessionLoaded(sessionId)
+    // Refresh the catalog AND this session's current selection so the picker
+    // matches the DSH Web UI (models picked there / providers added after the
+    // extension started all show up).
+    await this.controller.refreshCatalog(sessionId)
     const title = this.controller.getSessionTitle(sessionId) || 'DSH Chat'
     const panel = vscode.window.createWebviewPanel(
       'dshChatWindow',
@@ -140,12 +144,18 @@ export class ChatPanel implements vscode.Disposable {
         break
       case 'setModelChoice': {
         const model = String(message.model ?? 'auto')
-        await this.controller.setModelChoice(model)
+        await this.controller.setModelChoice(model, sessionId)
         break
       }
       case 'setEffort': {
         const effort = String(message.effort ?? 'high')
-        await this.controller.setEffort(effort)
+        await this.controller.setEffort(effort, sessionId)
+        break
+      }
+      case 'refreshCatalog': {
+        // Reload the DSH model directory on picker open (Web UI parity).
+        await this.controller.refreshCatalog(sessionId)
+        endpoint.post({ type: 'state', snapshot: this.controller.snapshotFor(sessionId) })
         break
       }
       case 'cyclePermission':

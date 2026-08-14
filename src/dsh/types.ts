@@ -232,13 +232,31 @@ export interface ChatSnapshot {
   baseUrl: string
   running: boolean
   escalationHint?: boolean
-  /** Routable model ids from the DSH catalog. */
-  availableModels: string[]
-  /** 'auto' (router) or an explicit catalog model id. */
-  modelChoice: string
-  /** off | high | max */
-  effort: string
+  /** Provider-grouped catalog — the same source the DSH Web UI renders. */
+  catalogGroups: CatalogGroup[]
+  /**
+   * true = plugin auto-routing (flash/pro/proMax by text); false = follow the
+   * DSH session's own current selection exactly like the Web UI does.
+   */
+  autoRoute: boolean
+  /** The session's current model selection as reported by DSH (session.models). */
+  modelCurrent?: ModelSelection
   /** Current permission preset (read-only / workspace-write / danger-full-access). */
   permission: string
   permissionOptions: string[]
+}
+
+/** One model in the grouped catalog (lean webview-safe shape). */
+export interface CatalogModelEntry {
+  id: string
+  name: string
+  efforts: string[]
+  defaultEffort?: string
+}
+
+/** One provider group of the catalog. */
+export interface CatalogGroup {
+  id: string
+  name: string
+  models: CatalogModelEntry[]
 }
