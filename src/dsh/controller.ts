@@ -544,14 +544,41 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Close one session tab (UI only — the DSH session stays and reappears in
+   * the history picker). Returns the session id that should become active in
+   * its place, or undefined when the closed tab was not the active one.
+   */
+  async closeTab(sessionId: string): Promise<string | undefined> {
+    if (sessionId === undefined || !this.sessions.has(sessionId)) return undefined
+    this.sessions.delete(sessionId)
+    if (this.activeSessionId !== sessionId) return undefined
+    const next = [...this.sessions.keys()].at(-1)
+    if (next !== undefined) {
+      this.activeSessionId = next
+    } else {
+      // No tabs left: keep a fresh home tab so the window never goes empty.
+      this.activeSessionId = undefined
+      await this.newSession()
+      return this.activeSessionId
+    }
+    this.emitState()
+    return next
+  }
+
   /** Sessions of this workspace available in the DSH instance (history picker). */
   async listHistorySessions(): Promise<ChatSessionMeta[]> {
     if (this.cwd === undefined) return []
     try {
       const { items } = await this.client.listSessions()
       const norm = normalizePath(this.cwd)
+      const sep = path.sep
       return items
-        .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm)
+        .filter((item) => {
+          if (item.cwd === undefined) return false
+          const c = normalizePath(item.cwd)
+          return c === norm || c.startsWith(norm + sep)
+        })
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, MAX_HISTORY_TITLES)
         .map((item) => ({

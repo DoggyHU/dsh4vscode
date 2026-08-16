@@ -115,6 +115,16 @@ body {
 }
 .tab-open-win .codicon { font-size: 11px; }
 .tab-open-win:hover { color: var(--accent); }
+.tab-close {
+  flex-shrink: 0;
+  background: transparent; border: none;
+  color: var(--muted); font-size: 11px;
+  padding: 0 4px; cursor: pointer;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 6px 0;
+}
+.tab-close .codicon { font-size: 11px; }
+.tab-close:hover { color: var(--danger); }
 .tab-new {
   flex-shrink: 0;
   background: transparent; border: 1px dashed var(--border);

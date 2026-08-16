@@ -77,8 +77,17 @@
         e.stopPropagation()
         vscode.postMessage({ type: 'openInEditor', sessionId: s.sessionId })
       })
+      const close = document.createElement('button')
+      close.className = 'tab-close'
+      close.title = '关闭此会话标签（会话仍保留在 DSH 历史）'
+      close.innerHTML = '<span class="codicon codicon-close"></span>'
+      close.addEventListener('click', (e) => {
+        e.stopPropagation()
+        vscode.postMessage({ type: 'closeTab', sessionId: s.sessionId })
+      })
       wrap.appendChild(tab)
       wrap.appendChild(openWin)
+      wrap.appendChild(close)
       tabList.appendChild(wrap)
     }
   }

@@ -219,6 +219,17 @@ export class ChatPanel implements vscode.Disposable {
         }
         break
       }
+      case 'closeTab': {
+        const target = String(message.sessionId ?? '')
+        if (target !== '') {
+          const next = await this.controller.closeTab(target)
+          if (endpoint.activeSessionId === target) {
+            endpoint.activeSessionId = next ?? ''
+            this.pushInitial(endpoint)
+          }
+        }
+        break
+      }
       case 'listHistory': {
         const items = await this.controller.listHistorySessions()
         endpoint.post({ type: 'history', items })
