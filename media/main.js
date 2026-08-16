@@ -185,7 +185,6 @@
       const body = el.querySelector('.body')
       body.dataset.md = ''
       renderBody(el, item)
-      if (item.reasoning) appendReasoning(el, item.reasoning)
     } else {
       el.className = 'msg tool'
       el.appendChild(buildToolCard(item))
