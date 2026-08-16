@@ -8,4 +8,6 @@ scripts/**
 .gitignore
 refs/
 *.log
+out/**/*.d.ts
+vscode-state.png
 !media/**

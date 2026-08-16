@@ -114,6 +114,27 @@ export interface ModelsValue {
   failures: unknown[]
 }
 
+// ---- agent preset catalog ----
+
+/** One discoverable agent preset (an `agentPreset.list` row). */
+export interface AgentPresetInfo {
+  id: string
+  trust: 'system' | 'user'
+  /** Whether this preset is the deployment default. */
+  isDefault: boolean
+  /** Human-facing display name; falls back to the id when absent. */
+  name?: string
+  /** One sentence on what this preset is for. */
+  description?: string
+  broken?: { message: string }
+}
+
+export interface AgentPresetListValue {
+  presets: AgentPresetInfo[]
+  authorable: boolean
+  hasDocument: boolean
+}
+
 export interface PromptPayload {
   sessionId: string
   mode: 'queue' | 'steer'

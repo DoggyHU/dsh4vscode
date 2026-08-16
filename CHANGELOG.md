@@ -4,6 +4,12 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.7] - 2026-08-14
+
+### 新增
+
+- **新建会话时选择 Agent 模式**：点「新窗口」「新建 tab」或执行 `DSH: New Session` 命令时，弹出原生选择框，从 DSH 的预设中挑选本轮的模式（标准模式 / 极简模式 / PTC 模式 / 创造模式 等，含显示名与说明，默认项有标注），选完再以该 preset 创建会话。若部署没有配置任何 preset，则退回到配置里的默认 preset，不影响正常开新会话。
+
 ## [0.6.6] - 2026-08-14
 
 ### 修复

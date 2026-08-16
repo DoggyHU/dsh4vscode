@@ -5,6 +5,7 @@
  */
 import WebSocket from 'ws'
 import type {
+  AgentPresetListValue,
   ClientRequest,
   CreateSessionPayload,
   CreateSessionValue,
@@ -125,6 +126,11 @@ export class DshClient {
 
   createSession(payload: CreateSessionPayload): Promise<CreateSessionValue> {
     return this.call('session.create', payload)
+  }
+
+  /** List the discoverable agent presets (standard / minimal / …). */
+  listAgentPresets(): Promise<AgentPresetListValue> {
+    return this.call('agentPreset.list', {})
   }
 
   history(sessionId: string, beforeSeq?: number, maxMessages?: number): Promise<HistoryValue> {

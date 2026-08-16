@@ -11,6 +11,7 @@ import * as vscode from 'vscode'
 import { DshClient } from './client.js'
 import { getDshConfig } from './config.js'
 import type {
+  AgentPresetInfo,
   AssistantChunkData,
   AssistantMessageData,
   CatalogGroup,
@@ -522,11 +523,53 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
-  /** Create a fresh DSH session and make it the active tab. Returns its id. */
-  async newSession(): Promise<string | undefined> {
+  /** List the discoverable agent presets (standard / minimal / …). */
+  async listAgentPresets(): Promise<AgentPresetInfo[]> {
+    try {
+      const { presets } = await this.client.listAgentPresets()
+      return presets
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Create a fresh DSH session, prompting the user to pick the agent preset
+   * (标准模式 / 极简模式 / …) first. Returns undefined when the user cancels
+   * or no session can be created. Falls back to the configured default preset
+   * when the deployment composes no presets (so the picker never blocks).
+   */
+  async newSessionWithChoice(): Promise<string | undefined> {
+    const presets = await this.listAgentPresets()
+    let preset: string
+    if (presets.length > 0) {
+      // Mirror DSH's own mode names alongside their display name.
+      const picked = await vscode.window.showQuickPick(
+        presets.map((p) => ({
+          label: p.name ?? p.id,
+          description: `${p.id}${p.isDefault ? ' · 默认' : ''}`,
+          detail: p.description,
+          id: p.id,
+        }) as vscode.QuickPickItem & { id: string }),
+        { placeHolder: '选择新建会话的 Agent 模式（标准 / 极简 / …）', title: '新建会话模式' },
+      )
+      if (picked === undefined) return undefined
+      preset = picked.id
+    } else {
+      preset = getDshConfig().agentPreset
+    }
+    return this.newSession(preset)
+  }
+
+  /**
+   * Create a fresh DSH session and make it the active tab. Returns its id.
+   * @param agentPreset - the agent preset id (standard / minimal / …); defaults
+   *   to the configured preset when omitted.
+   */
+  async newSession(agentPreset?: string): Promise<string | undefined> {
     if (this.cwd === undefined) return undefined
     try {
-      const created = await this.client.createSession({ cwd: this.cwd, agentPreset: getDshConfig().agentPreset })
+      const created = await this.client.createSession({ cwd: this.cwd, agentPreset: agentPreset ?? getDshConfig().agentPreset })
       const st = newSessionState(created.sessionId, true)
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId

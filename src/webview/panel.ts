@@ -49,9 +49,9 @@ export class ChatPanel implements vscode.Disposable {
     })
   }
 
-  /** Open a new independent chat window (always backed by a NEW session). */
+  /** Open a new independent chat window, prompting for the agent preset first. */
   async newWindow(): Promise<void> {
-    const sessionId = await this.controller.newSession()
+    const sessionId = await this.controller.newSessionWithChoice()
     if (sessionId === undefined) return
     this.openSessionWindow(sessionId)
   }
@@ -197,8 +197,9 @@ export class ChatPanel implements vscode.Disposable {
         break
       }
       case 'newSession': {
-        // New tab inside THIS window: create a session and activate it here.
-        const sid = await this.controller.newSession()
+        // New tab inside THIS window: prompt for a preset, create a session
+        // and activate it here.
+        const sid = await this.controller.newSessionWithChoice()
         if (sid !== undefined) {
           endpoint.activeSessionId = sid
           this.pushInitial(endpoint)

@@ -39,7 +39,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       await panel?.newWindow()
     }),
     vscode.commands.registerCommand('dsh.newSession', () => {
-      void controller?.newSession()
+      void controller?.newSessionWithChoice()
     }),
     vscode.commands.registerCommand('dsh.cancel', () => {
       void controller?.cancel()
