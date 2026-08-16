@@ -155,6 +155,17 @@ export class ChatController implements vscode.Disposable {
    * List this workspace's DSH sessions and open the most recent one; the rest
    * become history entries (tabs appear as they are switched to).
    */
+  /** Find an unused (blank, not running) session for this cwd, if any. */
+  private async findBlankSession(cwd: string): Promise<SessionSummary | undefined> {
+    try {
+      const { items } = await this.client.listSessions()
+      const norm = normalizePath(cwd)
+      return items.find((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm && item.blank && !item.running)
+    } catch {
+      return undefined
+    }
+  }
+
   private async restoreSessions(cwd: string): Promise<void> {
     const { items } = await this.client.listSessions()
     const norm = normalizePath(cwd)
@@ -162,9 +173,13 @@ export class ChatController implements vscode.Disposable {
       .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm && !item.running && !item.blank)
       .sort((a, b) => b.updatedAt - a.updatedAt)
     if (mine.length === 0) {
-      // Fresh workspace: open one blank session so the tab bar has a home.
-      const created = await this.client.createSession({ cwd, agentPreset: getDshConfig().agentPreset })
-      const st = newSessionState(created.sessionId, true)
+      // Reuse an existing blank session when present so reopening the panel
+      // does not pile up empty sessions; otherwise create one as the home tab.
+      const blank = await this.findBlankSession(cwd)
+      const sid = blank !== undefined
+        ? blank.sessionId
+        : (await this.client.createSession({ cwd, agentPreset: getDshConfig().agentPreset })).sessionId
+      const st = newSessionState(sid, true, blank !== undefined ? sessionTitle(blank) : '新会话')
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId
       return
@@ -526,18 +541,23 @@ export class ChatController implements vscode.Disposable {
   async newSession(): Promise<string | undefined> {
     if (this.cwd === undefined) return undefined
     try {
-      const created = await this.client.createSession({ cwd: this.cwd, agentPreset: getDshConfig().agentPreset })
-      const st = newSessionState(created.sessionId, true)
+      // Reuse an existing blank session so repeated "new session" clicks and
+      // panel opens do not accumulate empty sessions (DSH's documented guidance).
+      const blank = await this.findBlankSession(this.cwd)
+      const sid = blank !== undefined
+        ? blank.sessionId
+        : (await this.client.createSession({ cwd: this.cwd, agentPreset: getDshConfig().agentPreset })).sessionId
+      const st = newSessionState(sid, true, blank !== undefined ? sessionTitle(blank) : '新会话')
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId
       await this.refreshPermission(st.sessionId)
-      // Read the new session's current selection: DSH seeds it from the
+      // Read the session's current selection: DSH seeds it from the
       // deployment default — the last pick made anywhere (Web UI or plugin)
-      // is what this new dialog inherits. Same behavior as the Web UI.
+      // is what this dialog inherits. Same behavior as the Web UI.
       await this.refreshCatalog(st.sessionId)
       this.emitState()
-      this.emit({ type: 'toast', kind: 'info', text: '已新建会话' })
-      return created.sessionId
+      this.emit({ type: 'toast', kind: 'info', text: blank !== undefined ? '已复用空白会话' : '已新建会话' })
+      return sid
     } catch (error) {
       this.emit({ type: 'toast', kind: 'error', text: `新建会话失败：${errorMessage(error)}` })
       return undefined
