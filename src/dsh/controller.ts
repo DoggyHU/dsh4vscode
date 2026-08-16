@@ -60,6 +60,8 @@ const TEXT_TRUNCATE = 6000
 const RESULT_TRUNCATE = 4000
 const TITLE_PREFIX_LENGTH = 24
 const MAX_HISTORY_TITLES = 50
+/** Recent sessions opened as tabs when a window restores. */
+const RESTORE_TAB_COUNT = 3
 
 /** Per-session state (one chat tab). */
 interface SessionState {
@@ -184,11 +186,17 @@ export class ChatController implements vscode.Disposable {
       this.activeSessionId = st.sessionId
       return
     }
-    const latest = mine[0]
-    const st = newSessionState(latest.sessionId, true, sessionTitle(latest))
-    this.sessions.set(st.sessionId, st)
-    this.activeSessionId = st.sessionId
-    await this.loadHistory(st)
+    // Open the recent sessions as tabs (the most recent active), mirroring the
+    // Web UI's default session rail.
+    const recent = mine.slice(0, RESTORE_TAB_COUNT)
+    for (const s of recent) {
+      const st = newSessionState(s.sessionId, true, sessionTitle(s))
+      this.sessions.set(st.sessionId, st)
+    }
+    this.activeSessionId = recent[0].sessionId
+    for (const s of recent) {
+      await this.loadHistory(this.sessions.get(s.sessionId)!)
+    }
   }
 
   private async loadHistory(st: SessionState): Promise<void> {
