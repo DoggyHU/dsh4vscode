@@ -102,7 +102,7 @@
   function renderHistory(items) {
     historyList.innerHTML = ''
     if (!items || items.length === 0) {
-      historyList.innerHTML = '<div class="history-empty">没有历史会话</div>'
+      historyList.innerHTML = '<div class="history-empty">没有历史会话（可点右上角 ↻ 刷新）</div>'
       return
     }
     for (const item of items) {
@@ -203,7 +203,7 @@
     details.className = 'reasoning'
     details.innerHTML = `<summary>💭 思考过程</summary><div class="reasoning-body"></div>`
     details.querySelector('.reasoning-body').textContent = reasoningText
-    msgEl.insertBefore(details, msgEl.querySelector('.body').nextSibling)
+    msgEl.insertBefore(details, body)
   }
 
   function renderBody(msgEl, item) {
@@ -879,6 +879,10 @@
     clearQuestion()
   })
   btnHistory.addEventListener('click', openHistory)
+  const btnHistoryRefresh = document.getElementById('btn-history-refresh')
+  if (btnHistoryRefresh !== null) {
+    btnHistoryRefresh.addEventListener('click', () => vscode.postMessage({ type: 'listHistory' }))
+  }
   document.addEventListener('click', (e) => {
     if (!historyPop.classList.contains('hidden') && !historyPop.contains(e.target) && e.target !== btnHistory) {
       historyPop.classList.add('hidden')

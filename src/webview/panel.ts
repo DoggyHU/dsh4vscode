@@ -320,7 +320,10 @@ export class ChatPanel implements vscode.Disposable {
       <button id="btn-new-window" class="tab-new" title="新建独立窗口（可多开分屏）"><span class="codicon codicon-multiple-windows"></span></button>
     </div>
     <div id="history-pop" class="history-pop hidden">
-      <div class="history-title">历史会话</div>
+      <div class="history-head">
+        <div class="history-title">历史会话</div>
+        <button id="btn-history-refresh" class="history-refresh" title="刷新">↻</button>
+      </div>
       <div id="history-list" class="history-list"></div>
     </div>
     <div id="question-banner" class="question-banner hidden">

@@ -552,7 +552,11 @@ export class ChatController implements vscode.Disposable {
   async closeTab(sessionId: string): Promise<string | undefined> {
     if (sessionId === undefined || !this.sessions.has(sessionId)) return undefined
     this.sessions.delete(sessionId)
-    if (this.activeSessionId !== sessionId) return undefined
+    if (this.activeSessionId !== sessionId) {
+      // Closing a background tab: the tab list must still re-render.
+      this.emitState()
+      return undefined
+    }
     const next = [...this.sessions.keys()].at(-1)
     if (next !== undefined) {
       this.activeSessionId = next
