@@ -159,7 +159,7 @@ export class ChatController implements vscode.Disposable {
     const { items } = await this.client.listSessions()
     const norm = normalizePath(cwd)
     const mine = items
-      .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm && !item.running)
+      .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm && !item.running && !item.blank)
       .sort((a, b) => b.updatedAt - a.updatedAt)
     if (mine.length === 0) {
       // Fresh workspace: open one blank session so the tab bar has a home.
@@ -579,7 +579,7 @@ export class ChatController implements vscode.Disposable {
       const sep = path.sep
       return items
         .filter((item) => {
-          if (item.cwd === undefined) return false
+          if (item.cwd === undefined || item.blank) return false
           const c = normalizePath(item.cwd)
           return c === norm || c.startsWith(norm + sep)
         })
