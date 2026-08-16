@@ -17,6 +17,7 @@ import type {
   RpcResult,
   ServerResponse,
   SessionSummary,
+  WorkspaceSummary,
 } from './types.js'
 
 export class DshRpcError extends Error {
@@ -121,6 +122,10 @@ export class DshClient {
 
   listSessions(): Promise<{ items: SessionSummary[] }> {
     return this.call('session.list', {})
+  }
+
+  listWorkspaces(): Promise<{ items: WorkspaceSummary[] }> {
+    return this.call('workspace.list', {})
   }
 
   createSession(payload: CreateSessionPayload): Promise<CreateSessionValue> {

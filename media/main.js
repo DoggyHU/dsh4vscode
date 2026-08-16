@@ -454,6 +454,12 @@
     renderTabs()
     renderModelSelect(snapshot)
     renderEffortSelect(snapshot)
+    // Current workspace name (basename of cwd).
+    const wsName = document.getElementById('workspace-name')
+    if (wsName) {
+      const base = (snapshot.cwd || '').split(/[\\/]/).filter(Boolean).pop()
+      wsName.textContent = base || '工作区'
+    }
     // Permission badge.
     const permBadge = document.getElementById('perm-badge')
     const perm = snapshot.permission || ''
@@ -896,6 +902,10 @@
     clearQuestion()
   })
   btnHistory.addEventListener('click', openHistory)
+  const btnWorkspace = document.getElementById('btn-workspace')
+  if (btnWorkspace !== null) {
+    btnWorkspace.addEventListener('click', () => vscode.postMessage({ type: 'switchWorkspace' }))
+  }
   const btnHistoryRefresh = document.getElementById('btn-history-refresh')
   if (btnHistoryRefresh !== null) {
     btnHistoryRefresh.addEventListener('click', () => vscode.postMessage({ type: 'listHistory' }))

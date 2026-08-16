@@ -249,6 +249,35 @@ export class ChatController implements vscode.Disposable {
 
   getActiveSessionId(): string | undefined { return this.activeSessionId }
   getCwd(): string | undefined { return this.cwd }
+
+  /** Combined workspace choices: VS Code folders first, then DSH workspaces (deduped by path). */
+  async workspaceOptions(): Promise<{ label: string; description: string; path: string }[]> {
+    const out: { label: string; description: string; path: string }[] = []
+    for (const f of vscode.workspace.workspaceFolders ?? []) {
+      out.push({ label: path.basename(f.uri.fsPath), description: f.uri.fsPath, path: f.uri.fsPath })
+    }
+    try {
+      const { items } = await this.client.listWorkspaces()
+      for (const w of items) {
+        if (out.some((o) => normalizePath(o.path) === normalizePath(w.path))) continue
+        out.push({ label: w.title || path.basename(w.path), description: w.path, path: w.path })
+      }
+    } catch {
+      /* workspace.list unavailable or errored — VS Code folders still work */
+    }
+    return out
+  }
+
+  /** Switch the panel to a different workspace cwd and restore its sessions. */
+  async switchWorkspace(dir: string): Promise<string | undefined> {
+    if (dir === this.cwd) return this.activeSessionId
+    this.cwd = dir
+    this.sessions.clear()
+    this.activeSessionId = undefined
+    await this.restoreSessions(dir)
+    this.emitState()
+    return this.activeSessionId
+  }
   isRunning(): boolean {
     const st = this.active()
     return st?.running ?? false

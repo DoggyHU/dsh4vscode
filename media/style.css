@@ -43,6 +43,16 @@ body {
 .dot.on { background: var(--ok); }
 .dot.off { background: var(--danger); }
 .conn-text { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-btn {
+  display: flex; align-items: center; gap: 2px;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--fg); border-radius: 4px;
+  padding: 1px 6px; font-size: 11px; cursor: pointer;
+  max-width: 180px;
+}
+.workspace-btn #workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-btn .codicon { font-size: 11px; color: var(--muted); }
+.workspace-btn:hover { border-color: var(--accent); }
 .icon-btn {
   background: transparent; border: none; color: var(--muted);
   cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 4px;

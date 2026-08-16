@@ -50,6 +50,12 @@ export interface SessionSummary {
   agentPreset?: string
 }
 
+export interface WorkspaceSummary {
+  workspaceId: string
+  path: string
+  title: string
+}
+
 export interface CreateSessionPayload {
   workspaceId?: string
   cwd?: string

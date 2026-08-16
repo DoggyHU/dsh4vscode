@@ -235,6 +235,23 @@ export class ChatPanel implements vscode.Disposable {
         endpoint.post({ type: 'history', items })
         break
       }
+      case 'switchWorkspace': {
+        const options = await this.controller.workspaceOptions()
+        if (options.length === 0) {
+          endpoint.post({ type: 'toast', kind: 'warn', text: '没有可切换的工作区' })
+          break
+        }
+        const pick = await vscode.window.showQuickPick(
+          options.map((o) => ({ label: o.label, description: o.description })),
+          { placeHolder: '切换工作区（DSH 工作区 + VS Code 文件夹）' },
+        )
+        const chosen = pick === undefined ? undefined : options.find((o) => o.label === pick.label && o.description === pick.description)
+        if (chosen === undefined) break
+        const newActive = await this.controller.switchWorkspace(chosen.path)
+        endpoint.activeSessionId = newActive ?? ''
+        this.pushInitial(endpoint)
+        break
+      }
       case 'answerQuestion': {
         const rpcId = String(message.rpcId ?? '')
         const answers = Array.isArray(message.answers) ? message.answers as { id: string; selected: string[]; custom?: string }[] : []
@@ -310,6 +327,7 @@ export class ChatPanel implements vscode.Disposable {
     <div class="header-row">
       <span id="conn-dot" class="dot pending" title="连接状态"></span>
       <span id="conn-text" class="conn-text">连接中…</span>
+      <button id="btn-workspace" class="workspace-btn" title="切换工作区"><span id="workspace-name">工作区</span><span class="codicon codicon-chevron-down"></span></button>
       <span class="spacer"></span>
       <button id="btn-history" class="icon-btn" title="历史会话"><span class="codicon codicon-history"></span></button>
       <button id="btn-web" class="icon-btn" title="打开 DSH Web GUI"><span class="codicon codicon-globe"></span></button>
