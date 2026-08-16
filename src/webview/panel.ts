@@ -308,19 +308,6 @@ export class ChatPanel implements vscode.Disposable {
       <button id="btn-new-tab" class="tab-new" title="新建会话（tab）"><span class="codicon codicon-add"></span></button>
       <button id="btn-new-window" class="tab-new" title="新建独立窗口（可多开分屏）"><span class="codicon codicon-multiple-windows"></span></button>
     </div>
-    <div class="header-row">
-      <label class="model-label" for="model-select">模型</label>
-      <select id="model-select" title="模型（与 DSH Web UI 保持一致）"></select>
-      <label class="model-label" for="effort-select">思考</label>
-      <select id="effort-select" title="推理强度（手动选模型时生效）">
-        <option value="off">off</option>
-        <option value="high">high</option>
-        <option value="max">max</option>
-      </select>
-      <span class="spacer"></span>
-      <button id="btn-cancel" class="btn-cancel hidden" title="取消当前运行">停止</button>
-    </div>
-    <div id="session-bar" class="session-bar" title=""></div>
     <div id="history-pop" class="history-pop hidden">
       <div class="history-title">历史会话</div>
       <div id="history-list" class="history-list"></div>
@@ -344,6 +331,18 @@ export class ChatPanel implements vscode.Disposable {
   </main>
   <footer id="dsh-footer">
     <div id="input-popup" class="input-popup hidden"></div>
+    <div class="footer-selects">
+      <label class="model-label" for="model-select">模型</label>
+      <select id="model-select" title="模型（与 DSH Web UI 保持一致）"></select>
+      <label class="model-label" for="effort-select">思考</label>
+      <select id="effort-select" title="推理强度（手动选模型时生效）">
+        <option value="off">off</option>
+        <option value="high">high</option>
+        <option value="max">max</option>
+      </select>
+      <span class="spacer"></span>
+      <button id="btn-cancel" class="btn-cancel hidden" title="取消当前运行">停止</button>
+    </div>
     <textarea id="input" rows="1" placeholder="输入消息，Enter 发送。@ 引用文件，/ 斜杠命令，Shift+Enter 换行。"></textarea>
     <div class="footer-row">
       <button id="perm-badge" class="perm-badge" title="点击切换权限模式（read-only → workspace-write → full access）"></button>

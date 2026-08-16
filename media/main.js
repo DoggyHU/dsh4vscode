@@ -14,7 +14,6 @@
   const modelSelect = document.getElementById('model-select')
   const connDot = document.getElementById('conn-dot')
   const connText = document.getElementById('conn-text')
-  const sessionBar = document.getElementById('session-bar')
   const statusText = document.getElementById('status-text')
   const toastEl = document.getElementById('toast')
   const tabList = document.getElementById('tab-list')
@@ -427,7 +426,6 @@
     activeSessionId = snapshot.activeSessionId
     sessions = snapshot.sessions || []
     renderTabs()
-    sessionBar.textContent = snapshot.cwd ? snapshot.cwd : ''
     renderModelSelect(snapshot)
     renderEffortSelect(snapshot)
     // Permission badge.

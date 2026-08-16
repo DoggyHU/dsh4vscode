@@ -63,11 +63,6 @@ body {
   border-radius: 4px; padding: 2px 10px; font-size: 12px; cursor: pointer;
 }
 .btn-cancel:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
-.session-bar {
-  font-size: 11px; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  margin-top: 2px;
-}
 
 /* ---- session tabs ---- */
 .tab-bar {
@@ -393,6 +388,7 @@ body {
 }
 #input:focus { outline: 1px solid var(--accent); }
 .footer-row { display: flex; align-items: center; gap: 8px; }
+.footer-selects { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .status-text { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn-send {
   background: var(--accent); color: #fff;
