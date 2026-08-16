@@ -250,6 +250,7 @@ body {
 
 /* messages */
 .msg { display: flex; gap: 8px; }
+.msg .content { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .msg.user { justify-content: flex-end; }
 .msg .avatar {
   width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;

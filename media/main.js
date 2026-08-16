@@ -181,7 +181,9 @@
     const el = document.createElement('div')
     if (item.kind === 'text') {
       el.className = `msg ${item.role}`
-      el.innerHTML = `<div class="avatar">${item.role === 'user' ? '我' : 'D'}</div><div class="body"></div>`
+      el.innerHTML = item.role === 'assistant'
+        ? `<div class="avatar">D</div><div class="content"><div class="body"></div></div>`
+        : `<div class="avatar">我</div><div class="body"></div>`
       const body = el.querySelector('.body')
       body.dataset.md = ''
       renderBody(el, item)
@@ -200,10 +202,9 @@
     body.dataset.reasoning = reasoningText
     const details = document.createElement('details')
     details.className = 'reasoning'
-    details.open = true
     details.innerHTML = `<summary>💭 思考过程</summary><div class="reasoning-body"></div>`
     details.querySelector('.reasoning-body').textContent = reasoningText
-    msgEl.insertBefore(details, body)
+    body.parentElement.insertBefore(details, body)
   }
 
   function renderBody(msgEl, item) {
