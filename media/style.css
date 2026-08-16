@@ -347,6 +347,11 @@ body {
   font-family: var(--mono); font-weight: 600;
   color: var(--fg);
 }
+.tool-card .tool-desc {
+  flex: 1; min-width: 0;
+  color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tool-card .tool-state { margin-left: auto; font-size: 11px; color: var(--muted); }
 .tool-card .tool-state.running { color: var(--warn); }
 .tool-card .tool-state.done { color: var(--ok); }

@@ -232,16 +232,32 @@
     }
   }
 
+  function toolDescription(item) {
+    if (item.args === undefined || item.args === null || item.args === '') return ''
+    let args
+    if (typeof item.args === 'string') {
+      try { args = JSON.parse(item.args) } catch { return '' }
+    } else {
+      args = item.args
+    }
+    if (args && typeof args === 'object' && typeof args.description === 'string' && args.description.trim() !== '') {
+      return args.description.trim()
+    }
+    return ''
+  }
+
   function buildToolCard(item) {
     const card = document.createElement('details')
     card.className = `tool-card ${item.state}`
     card.dataset.callId = item.callId
     let prettyArgs = item.args
     try { prettyArgs = JSON.stringify(JSON.parse(item.args), null, 2) } catch { /* raw */ }
+    const desc = toolDescription(item)
     card.innerHTML = `
       <summary>
         <span class="tool-icon">🛠</span>
         <span class="tool-name">${escapeHtml(item.name)}</span>
+        ${desc !== '' ? `<span class="tool-desc">· ${escapeHtml(desc)}</span>` : ''}
         <span class="tool-state ${item.state}">${toolStateLabel(item.state)}</span>
       </summary>
       <div class="tool-detail">
