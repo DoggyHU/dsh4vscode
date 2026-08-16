@@ -14,7 +14,6 @@
   const modelSelect = document.getElementById('model-select')
   const connDot = document.getElementById('conn-dot')
   const connText = document.getElementById('conn-text')
-  const sessionBar = document.getElementById('session-bar')
   const statusText = document.getElementById('status-text')
   const toastEl = document.getElementById('toast')
   const tabList = document.getElementById('tab-list')
@@ -78,8 +77,17 @@
         e.stopPropagation()
         vscode.postMessage({ type: 'openInEditor', sessionId: s.sessionId })
       })
+      const close = document.createElement('button')
+      close.className = 'tab-close'
+      close.title = '关闭此会话标签（会话仍保留在 DSH 历史）'
+      close.innerHTML = '<span class="codicon codicon-close"></span>'
+      close.addEventListener('click', (e) => {
+        e.stopPropagation()
+        vscode.postMessage({ type: 'closeTab', sessionId: s.sessionId })
+      })
       wrap.appendChild(tab)
       wrap.appendChild(openWin)
+      wrap.appendChild(close)
       tabList.appendChild(wrap)
     }
   }
@@ -427,7 +435,6 @@
     activeSessionId = snapshot.activeSessionId
     sessions = snapshot.sessions || []
     renderTabs()
-    sessionBar.textContent = snapshot.cwd ? snapshot.cwd : ''
     renderModelSelect(snapshot)
     renderEffortSelect(snapshot)
     // Permission badge.
