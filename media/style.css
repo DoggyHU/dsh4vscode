@@ -27,6 +27,7 @@ body {
 
 /* ---- header ---- */
 #dsh-header {
+  position: relative;
   border-bottom: 1px solid var(--border);
   padding: 6px 10px;
   flex-shrink: 0;
@@ -137,7 +138,7 @@ body {
 
 /* ---- history popup ---- */
 .history-pop {
-  position: absolute; top: 64px; right: 8px; left: 8px; z-index: 20;
+  position: absolute; top: calc(100% + 4px); right: 8px; left: 8px; z-index: 20;
   background: var(--vscode-dropdown-background, #2d2d30);
   border: 1px solid var(--border);
   border-radius: 8px;
