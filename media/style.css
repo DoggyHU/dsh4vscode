@@ -324,7 +324,7 @@ body {
   font-size: 11.5px;
   color: var(--muted);
   white-space: pre-wrap;
-  font-family: var(--mono);
+  line-height: 1.5;
 }
 
 /* tool cards */

@@ -201,6 +201,7 @@
     body.dataset.reasoning = reasoningText
     const details = document.createElement('details')
     details.className = 'reasoning'
+    details.open = true
     details.innerHTML = `<summary>💭 思考过程</summary><div class="reasoning-body"></div>`
     details.querySelector('.reasoning-body').textContent = reasoningText
     msgEl.insertBefore(details, body)
