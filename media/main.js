@@ -23,6 +23,7 @@
   const btnHistory = document.getElementById('btn-history')
   const questionBanner = document.getElementById('question-banner')
   const questionBody = document.getElementById('question-body')
+  const queueDock = document.getElementById('queue-dock')
 
   const md = window.markdownit({ html: false, linkify: true, breaks: true })
   const escapeHtml = (s) => String(s)
@@ -422,11 +423,58 @@
     effortSel.title = '推理强度'
   }
 
+  // ---- pending queue dock (Web-UI parity) ----
+  function renderQueue(queue) {
+    const items = Array.isArray(queue) ? queue.filter((q) => q.placement !== 'context') : []
+    queueDock.innerHTML = ''
+    if (items.length === 0) {
+      queueDock.classList.add('hidden')
+      return
+    }
+    queueDock.classList.remove('hidden')
+    const head = document.createElement('div')
+    head.className = 'queue-head'
+    head.textContent = `排队中（${items.length}）：当前任务结束后自动按序执行`
+    queueDock.appendChild(head)
+    for (const item of items) {
+      if (item.placement === 'steering') continue // steering renders inline at the tail
+      const row = document.createElement('div')
+      row.className = 'queue-row'
+      const text = (item.message && item.message.content || [])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+      const body = document.createElement('div')
+      body.className = 'queue-text'
+      body.textContent = text ? (text.length > 90 ? text.slice(0, 90) + '…' : text) : '（消息）'
+      body.title = text
+      row.appendChild(body)
+      const steer = document.createElement('button')
+      steer.className = 'queue-steer'
+      steer.textContent = '⤴ 打断插队'
+      steer.title = '打断当前任务，优先处理这条消息'
+      steer.addEventListener('click', () => {
+        vscode.postMessage({ type: 'steerQueued', itemId: item.id, sessionId: activeSessionId })
+      })
+      row.appendChild(steer)
+      const rm = document.createElement('button')
+      rm.className = 'queue-rm'
+      rm.textContent = '✕'
+      rm.title = '从队列移除'
+      rm.addEventListener('click', () => {
+        vscode.postMessage({ type: 'removeQueued', itemId: item.id, sessionId: activeSessionId })
+      })
+      row.appendChild(rm)
+      queueDock.appendChild(row)
+    }
+  }
+
   function renderState(snapshot) {
     lastSnapshot = snapshot
     activeSessionId = snapshot.activeSessionId
     sessions = snapshot.sessions || []
     renderTabs()
+    renderQueue(snapshot.queue)
     sessionBar.textContent = snapshot.cwd ? snapshot.cwd : ''
     renderModelSelect(snapshot)
     renderEffortSelect(snapshot)
@@ -463,7 +511,9 @@
 
   function setRunning(r) {
     running = r
-    sendBtn.disabled = r
+    // The send button stays enabled while running so the user can queue more
+    // messages (they wait in the queue dock instead of being dropped).
+    sendBtn.disabled = false
     cancelBtn.classList.toggle('hidden', !r)
     statusText.textContent = r ? '运行中…' : ''
   }
@@ -796,7 +846,9 @@
   sendBtn.addEventListener('click', send)
   function send() {
     const text = inputEl.value
-    if (!text.trim() || running) return
+    if (!text.trim()) return
+    // Sending while the agent is busy is allowed: the controller enqueues the
+    // message (DSH Web-UI parity) and it shows up in the queue dock.
     inputEl.value = ''
     autoGrow()
     vscode.postMessage({ type: 'send', text, sessionId: activeSessionId })

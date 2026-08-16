@@ -13,6 +13,7 @@ import { getDshConfig } from './config.js'
 import type {
   AgentPresetInfo,
   AssistantChunkData,
+  QueuedInboxItem,
   AssistantMessageData,
   CatalogGroup,
   ChatItem,
@@ -76,6 +77,8 @@ interface SessionState {
   stepTextItemId: string | undefined
   currentStep: number
   pendingTools: Map<string, string> // callId -> itemId
+  /** Authoritative pending queue (session/queue); queued/steering messages. */
+  queue: QueuedInboxItem[]
   /** Current permission preset of THIS session (from its projections). */
   permission: string
   /** DSH's current model selection for THIS session (session.models `current`). */
@@ -102,6 +105,7 @@ function newSessionState(sessionId: string, persisted: boolean, title = '新会�
     stepTextItemId: undefined,
     currentStep: -1,
     pendingTools: new Map(),
+    queue: [],
     permission: '',
     modelCurrent: undefined,
     lastSeenTurn: -1,
@@ -249,9 +253,27 @@ export class ChatController implements vscode.Disposable {
   async send(text: string, sessionId?: string): Promise<void> {
     const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
     const trimmed = text.trim()
-    if (st === undefined || trimmed === '' || st.running) return
+    if (st === undefined || trimmed === '') return
     if (st.title === '新会话' && !trimmed.startsWith('/')) {
       st.title = trimmed.slice(0, TITLE_PREFIX_LENGTH) + (trimmed.length > TITLE_PREFIX_LENGTH ? '…' : '')
+    }
+    // While the agent is busy, mirror the DSH Web UI: instead of dropping the
+    // message, enqueue it (mode 'queue'). It shows up in the queue dock and is
+    // claimed automatically once the current turn ends — or the user can steer
+    // (interrupt) it from the dock. Slash commands bypass the model, so they
+    // are only dispatched when idle.
+    if (st.running) {
+      if (trimmed.startsWith('/')) {
+        this.emit({ type: 'toast', kind: 'warn', text: 'Agent 正在运行，请等本轮完成后使用斜杠命令' })
+        return
+      }
+      try {
+        await this.client.prompt(st.sessionId, trimmed, 'queue')
+        this.emit({ type: 'toast', kind: 'info', text: '已加入队列，当前任务结束后自动执行' })
+      } catch (error) {
+        this.emit({ type: 'toast', kind: 'error', text: `加入队列失败：${errorMessage(error)}` })
+      }
+      return
     }
     // Slash commands (/permission, /plan, ...) bypass the model entirely.
     // Everything else follows the DSH session's recorded current selection —
@@ -614,6 +636,7 @@ export class ChatController implements vscode.Disposable {
     st.turns = []
     st.turnSeq = -1
     st.itemSeq = 0
+    st.queue = []
     st.currentTurnId = undefined
     st.pendingTurnId = undefined
     this.emitState()
@@ -621,12 +644,34 @@ export class ChatController implements vscode.Disposable {
 
   /** Send from outside the webview (e.g. context-menu commands). */
   async sendExternal(text: string): Promise<void> {
-    const st = this.active()
-    if (st?.running) {
-      this.emit({ type: 'toast', kind: 'warn', text: 'Agent 正在运行，请等待本轮完成后再发送' })
-      return
-    }
+    // `send()` handles the busy case by enqueuing (mirrors the DSH Web UI).
     await this.send(text)
+  }
+
+  /**
+   * Steer (interrupt / jump-the-queue) a pending queued message so it is
+   * inserted into the current turn. Mirrors the Web UI's "Steer queued message".
+   */
+  async steerQueued(itemId: string, sessionId?: string): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    try {
+      await this.client.updateQueue(st.sessionId, itemId, { kind: 'steer' })
+      this.emit({ type: 'toast', kind: 'info', text: '已打断当前任务，优先处理该消息' })
+    } catch (error) {
+      this.emit({ type: 'toast', kind: 'warn', text: `插队失败：${errorMessage(error)}` })
+    }
+  }
+
+  /** Remove a pending queued message. */
+  async removeQueued(itemId: string, sessionId?: string): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    try {
+      await this.client.updateQueue(st.sessionId, itemId, { kind: 'remove' })
+    } catch {
+      // non-fatal; queue snapshot will reconcile
+    }
   }
 
   /** Answer a pending agent question (all questions of one ask() as a batch). */
@@ -674,6 +719,23 @@ export class ChatController implements vscode.Disposable {
     }
     if (frame.type === 'question/resolved') {
       this.emit({ type: 'questionResolved', sessionId: frame.sessionId, rpcId: frame.questionRpcId, outcome: frame.outcome })
+      return
+    }
+    if (frame.type === 'session/queue') {
+      // Authoritative inbox snapshot: queued/steering messages. Keep a lean
+      // wire-safe copy in the session state so the webview can render the dock.
+      const st = this.sessions.get(frame.sessionId)
+      if (st !== undefined) {
+        st.queue = frame.items.map((item) => ({
+          id: item.id,
+          placement: item.placement,
+          message: {
+            content: item.message?.content ?? [],
+            ...(item.message?.source === undefined ? {} : { source: item.message.source }),
+          },
+        }))
+        this.emitState()
+      }
       return
     }
     if (frame.type !== 'session/event') return
@@ -821,9 +883,27 @@ export class ChatController implements vscode.Disposable {
     // skipped.
     const source = data.source?.kind
     if (source !== undefined && source !== 'user' && source !== 'human') return
-    if (st.pendingTurnId === undefined && st.currentTurnId === undefined) return
     const text = textOf(data.content ?? [])
     if (text === '') return
+    // A queued/steered message is claimed by the agent and arrives as
+    // user/message. When none of our local turns is active yet (idle after the
+    // previous turn, or an interjection landing before adoption), start a fresh
+    // pending turn so the prompt renders and adoption can attach it.
+    if (st.pendingTurnId === undefined && st.currentTurnId === undefined) {
+      const turnId = st.turnSeq--
+      const turn: ChatTurn = { id: turnId, items: [], status: 'running', model: 'auto' }
+      st.turns.push(turn)
+      st.pendingTurnId = turnId
+      st.currentStep = -1
+      st.stepTextItemId = undefined
+      const item: ChatItem = { kind: 'text', id: `i${st.itemSeq++}`, role: 'user', text }
+      turn.items.push(item)
+      this.emit({ type: 'itemAdd', sessionId: st.sessionId, turnId, item: item })
+      this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId, status: 'running', model: labelFor('auto') })
+      this.setRunning(st, true)
+      this.emitState()
+      return
+    }
     const turn = this.currentTurn(st) ?? st.turns.find((t) => t.id === st.pendingTurnId)
     if (turn === undefined) return
     // send() already renders the local prompt as a user item; skip the mux
@@ -973,6 +1053,7 @@ export class ChatController implements vscode.Disposable {
       cwd: this.cwd ?? '',
       sessions,
       turns: st?.turns ?? [],
+      queue: st?.queue ?? [],
       connected: this.client.connected,
       baseUrl: this.client.baseUrl,
       running: st?.running ?? false,

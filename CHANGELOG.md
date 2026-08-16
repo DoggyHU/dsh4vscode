@@ -4,6 +4,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.8] - 2026-08-16
+
+### 新增
+
+- **运行中发送消息不再丢弃，改为排队（DSH Web UI 同逻辑）**：agent 忙时发消息，客户端以 `session.prompt(mode:'queue')` 入队，界面在输入框上方出现「排队中」坞，显示已排队的消息；当前任务结束后自动按序执行。
+- **打断插队**：排队坞里每条消息右侧有「⤴ 打断插队」按钮，调 `session.updateQueue({action:{kind:'steer'}})` 把该条插入当前轮优先处理；另有「✕」可从队列移除。
+- 队列状态通过 DSH 的 `session/queue` 事件全量同步（placement 只取 `queued`），与 DSH Web UI 一致，便于日后维护。
+
 ## [0.6.7] - 2026-08-14
 
 ### 新增

@@ -166,6 +166,12 @@ export class ChatPanel implements vscode.Disposable {
       case 'cancel':
         await this.controller.cancel(sessionId)
         break
+      case 'steerQueued':
+        await this.controller.steerQueued(String(message.itemId ?? ''), sessionId)
+        break
+      case 'removeQueued':
+        await this.controller.removeQueued(String(message.itemId ?? ''), sessionId)
+        break
       case 'setModelChoice': {
         const model = String(message.model ?? 'auto')
         await this.controller.setModelChoice(model, sessionId)
@@ -345,6 +351,7 @@ export class ChatPanel implements vscode.Disposable {
   </main>
   <footer id="dsh-footer">
     <div id="input-popup" class="input-popup hidden"></div>
+    <div id="queue-dock" class="queue-dock hidden"></div>
     <textarea id="input" rows="1" placeholder="输入消息，Enter 发送。@ 引用文件，/ 斜杠命令，Shift+Enter 换行。"></textarea>
     <div class="footer-row">
       <button id="perm-badge" class="perm-badge" title="点击切换权限模式（read-only → workspace-write → full access）"></button>

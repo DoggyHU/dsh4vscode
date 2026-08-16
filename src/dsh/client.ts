@@ -154,13 +154,30 @@ export class DshClient {
     })
   }
 
-  prompt(sessionId: string, text: string): Promise<PromptValue> {
+  /**
+   * Send a prompt to a session. `mode: 'queue'` enqueues when the agent is busy
+   * (the message waits in the session queue); `mode: 'steer'` inserts it into
+   * the current turn instead.
+   */
+  prompt(sessionId: string, text: string, mode: 'queue' | 'steer' = 'queue'): Promise<PromptValue> {
     const payload: PromptPayload = {
       sessionId,
-      mode: 'queue',
+      mode,
       content: [{ type: 'text', text }],
     }
     return this.call('session.prompt', payload)
+  }
+
+  /**
+   * Mutate a pending queued item: `steer` (preempt / jump the queue as an
+   * interjection into the current turn), `remove`, or `edit` (text only).
+   */
+  updateQueue(
+    sessionId: string,
+    itemId: string,
+    action: { kind: 'steer' } | { kind: 'remove' } | { kind: 'edit'; content: { type: 'text'; text: string }[] },
+  ): Promise<{ accepted: true }> {
+    return this.call('session.updateQueue', { sessionId, itemId, action })
   }
 
   /**

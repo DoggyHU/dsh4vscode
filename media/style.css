@@ -404,6 +404,51 @@ body {
 .btn-send:disabled { opacity: 0.45; cursor: default; }
 .btn-send:not(:disabled):hover { filter: brightness(1.1); }
 
+/* ---- pending queue dock (Web-UI parity) ---- */
+.queue-dock {
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+}
+.queue-head {
+  font-size: 11px; color: var(--warn);
+  font-weight: 600;
+}
+.queue-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px;
+}
+.queue-row + .queue-row { margin-top: 2px; }
+.queue-text {
+  flex: 1; min-width: 0;
+  color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 3px 6px;
+  background: var(--vscode-input-background, #313131);
+  border-radius: 5px;
+}
+.queue-steer {
+  flex-shrink: 0;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px; font-weight: 600;
+  cursor: pointer;
+}
+.queue-steer:hover { filter: brightness(1.1); }
+.queue-rm {
+  flex-shrink: 0;
+  background: transparent; color: var(--muted);
+  border: none; cursor: pointer; font-size: 12px;
+  padding: 3px 4px; border-radius: 4px;
+}
+.queue-rm:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
 /* ---- input popup (@ file picker / slash commands) ---- */
 .input-popup {
   background: var(--vscode-dropdown-background, #2d2d30);

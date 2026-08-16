@@ -142,6 +142,16 @@ export interface PromptPayload {
   clientTimeZone?: string
 }
 
+/** One pending inbox occurrence in the authoritative `session/queue` snapshot. */
+export interface QueuedInboxItem {
+  /** Message identity used by inbox mutations. */
+  id: string
+  /** Agent-resolved FIFO placement; queued and steering render on different surfaces. */
+  placement: 'queued' | 'steering' | 'context'
+  /** Complete pending message; not durable until the Agent claims it. */
+  message: { content: ContentBlock[]; source?: { kind?: string; [k: string]: unknown } }
+}
+
 export interface PromptValue {
   accepted: true
   command?: { kind: string; text?: string }
@@ -199,7 +209,7 @@ export type MuxFrame =
   | { type: 'approval/resolved'; sessionId: string; approvalId: string; outcome: unknown }
   | { type: 'question/requested'; sessionId: string; questions: { id: string; question: string; detail?: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean }[] }
   | { type: 'question/resolved'; sessionId: string; questionRpcId: string; outcome: 'answered' | 'cancelled' }
-  | { type: 'session/queue'; sessionId: string; items: unknown[] }
+  | { type: 'session/queue'; sessionId: string; items: QueuedInboxItem[] }
   | { type: 'session/jobs'; sessionId: string; jobs: unknown[] }
   | { type: 'session/projection'; sessionId: string; key: string; value: unknown; seq: number }
   | { type: 'stream/error'; error: RpcError }
@@ -245,6 +255,8 @@ export interface ChatSnapshot {
   cwd: string
   sessions: ChatSessionMeta[]
   turns: ChatTurn[]
+  /** Pending queue (queued/steering messages shown in the queue dock). */
+  queue: QueuedInboxItem[]
   connected: boolean
   baseUrl: string
   running: boolean
