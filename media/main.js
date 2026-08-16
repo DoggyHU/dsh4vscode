@@ -840,7 +840,10 @@
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      send()
+      // Ctrl/Cmd+Enter = steer (jump the queue / interject into the current
+      // turn's step queue), mirroring the DSH Web UI composer shortcut.
+      if (e.ctrlKey || e.metaKey) sendSteer()
+      else send()
     }
   })
   sendBtn.addEventListener('click', send)
@@ -852,6 +855,14 @@
     inputEl.value = ''
     autoGrow()
     vscode.postMessage({ type: 'send', text, sessionId: activeSessionId })
+  }
+  function sendSteer() {
+    const text = inputEl.value
+    if (!text.trim()) return
+    inputEl.value = ''
+    autoGrow()
+    // steer: true → controller sends with mode:'steer' (interject into current step)
+    vscode.postMessage({ type: 'send', text, steer: true, sessionId: activeSessionId })
   }
   cancelBtn.addEventListener('click', () => {
     vscode.postMessage({ type: 'cancel', sessionId: activeSessionId })

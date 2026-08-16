@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.9] - 2026-08-16
+
+### 新增
+
+- **`Ctrl+Enter`（mac 为 `Cmd+Enter`）发送 = 直接插队**：运行中按这个快捷键，消息以 `session.prompt(mode:'steer')` 直接插入当前轮的步骤队列（紧接当前步骤后优先处理），等价于 DSH Web UI 的 Composer 插队快捷键。空闲时退化为普通发送。
+
+### 修复 / 说明
+
+- 修正「打断插队」的提示文案：DSH 的 steering 语义是**「跳队优先到当前步骤之后处理」**，并不会强行中断正在进行的模型/工具调用。原文案「已打断当前任务」容易误导，已改为「已插队优先处理这条消息（当前步骤结束后执行）」。
+
 ## [0.6.8] - 2026-08-16
 
 ### 新增

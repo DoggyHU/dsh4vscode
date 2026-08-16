@@ -649,15 +649,39 @@ export class ChatController implements vscode.Disposable {
   }
 
   /**
-   * Steer (interrupt / jump-the-queue) a pending queued message so it is
-   * inserted into the current turn. Mirrors the Web UI's "Steer queued message".
+   * Send a prompt with `mode: 'steer'`: when the agent is busy the message is
+   * spliced into the current turn's STEP queue (handled right after the current
+   * step), rather than appended to the waiting turn queue. Mirrors the Web UI's
+   * Ctrl/Cmd+Enter steering shortcut. Falls back to a normal send when idle.
+   */
+  async sendSteer(text: string, sessionId?: string): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    const trimmed = text.trim()
+    if (st === undefined || trimmed === '') return
+    if (!st.running) {
+      await this.send(text, sessionId)
+      return
+    }
+    try {
+      await this.client.prompt(st.sessionId, trimmed, 'steer')
+      this.emit({ type: 'toast', kind: 'info', text: '已插队优先处理这条消息' })
+    } catch (error) {
+      this.emit({ type: 'toast', kind: 'warn', text: `插队发送失败：${errorMessage(error)}` })
+    }
+  }
+
+  /**
+   * Steer a pending queued message so it is spliced into the current turn's step
+   * queue (processed right after the current step). Mirrors the Web UI's "Steer
+   * queued message". Note: DSH does NOT hard-abort the in-flight step; the
+   * message jumps the wait queue and is handled at the next step boundary.
    */
   async steerQueued(itemId: string, sessionId?: string): Promise<void> {
     const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
     if (st === undefined) return
     try {
       await this.client.updateQueue(st.sessionId, itemId, { kind: 'steer' })
-      this.emit({ type: 'toast', kind: 'info', text: '已打断当前任务，优先处理该消息' })
+      this.emit({ type: 'toast', kind: 'info', text: '已插队优先处理这条消息（当前步骤结束后执行）' })
     } catch (error) {
       this.emit({ type: 'toast', kind: 'warn', text: `插队失败：${errorMessage(error)}` })
     }

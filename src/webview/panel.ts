@@ -159,7 +159,11 @@ export class ChatPanel implements vscode.Disposable {
           // with the message, so "把这行替换成…" works without extra steps.
           const withSelection = this.attachEditorContext(raw)
           const expanded = await expandFileRefs(withSelection)
-          await this.controller.send(expanded, sessionId)
+          if (message.steer === true) {
+            await this.controller.sendSteer(expanded, sessionId)
+          } else {
+            await this.controller.send(expanded, sessionId)
+          }
         }
         break
       }
