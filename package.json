@@ -2,7 +2,7 @@
   "name": "dsh4vscode",
   "displayName": "DSH Chat for VS Code",
   "description": "DeepSeek Harness (DSH) inside VS Code: chat with the running DSH instance in editor windows, mirroring the DSH Web UI's model picker and session behavior.",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "publisher": "dsh4vscode",
   "license": "MIT",
   "repository": {

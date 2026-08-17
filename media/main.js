@@ -23,6 +23,8 @@
   const btnHistory = document.getElementById('btn-history')
   const questionBanner = document.getElementById('question-banner')
   const questionBody = document.getElementById('question-body')
+  const approvalBanner = document.getElementById('approval-banner')
+  const approvalText = document.getElementById('approval-text')
   const queueDock = document.getElementById('queue-dock')
 
   const md = window.markdownit({ html: false, linkify: true, breaks: true })
@@ -36,6 +38,8 @@
   let sessions = []
   /** @type {{rpcId:string, questions:any[]}|null} */
   let pendingQuestion = null
+  /** @type {{rpcId:string, approvalId:string, toolName:string, reason?:string}|null} */
+  let pendingApproval = null
   /** @type {any|null} */
   let lastSnapshot = null
   let toastTimer = null
@@ -524,6 +528,23 @@
   }
 
   // ---- agent questions ----
+  // ---- permission approval banner ----
+  function renderApproval(rpcId, approvalId, toolName, reason) {
+    pendingApproval = { rpcId, approvalId, toolName, reason }
+    // Prefer staying stuck on a question if one is open; show alongside it.
+    const verb = toolName ? `允许工具 ${toolName} 运行一次` : '允许该操作运行一次'
+    approvalText.textContent = reason
+      ? `🔐 ${verb}\n原因：${reason}`
+      : `🔐 ${verb}`
+    approvalBanner.classList.remove('hidden')
+  }
+
+  function clearApproval() {
+    pendingApproval = null
+    approvalBanner.classList.add('hidden')
+    approvalText.textContent = ''
+  }
+
   function renderQuestion(rpcId, questions) {
     pendingQuestion = { rpcId, questions }
     questionBody.innerHTML = ''
@@ -678,6 +699,14 @@
         if (msg.sessionId === activeSessionId && pendingQuestion !== null && pendingQuestion.rpcId === msg.rpcId) {
           clearQuestion()
           toast(msg.outcome === 'answered' ? 'info' : 'warn', msg.outcome === 'answered' ? '已提交回答' : '已取消提问')
+        }
+        break
+      case 'approval':
+        if (msg.sessionId === activeSessionId) renderApproval(msg.rpcId, msg.approvalId, msg.toolName, msg.reason)
+        break
+      case 'approvalResolved':
+        if (msg.sessionId === activeSessionId && pendingApproval !== null && pendingApproval.approvalId === msg.approvalId) {
+          clearApproval()
         }
         break
       case 'history':
@@ -933,6 +962,18 @@
     if (pendingQuestion === null) return
     vscode.postMessage({ type: 'cancelQuestion', rpcId: pendingQuestion.rpcId, sessionId: activeSessionId })
     clearQuestion()
+  })
+  document.getElementById('btn-approval-allow').addEventListener('click', () => {
+    if (pendingApproval === null) return
+    const p = pendingApproval
+    vscode.postMessage({ type: 'answerApproval', rpcId: p.rpcId, approvalId: p.approvalId, sessionId: activeSessionId })
+    clearApproval()
+  })
+  document.getElementById('btn-approval-reject').addEventListener('click', () => {
+    if (pendingApproval === null) return
+    const p = pendingApproval
+    vscode.postMessage({ type: 'rejectApproval', rpcId: p.rpcId, approvalId: p.approvalId, sessionId: activeSessionId })
+    clearApproval()
   })
   btnHistory.addEventListener('click', openHistory)
   document.addEventListener('click', (e) => {

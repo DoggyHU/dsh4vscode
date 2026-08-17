@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.10] - 2026-08-17
+
+### 新增
+
+- **权限审批（Web UI 同款）**：agent 需要更高权限（如 `workspace-write` / 全访问）触发 `approval/requested` 时，插件现在会弹出审批横幅，显示工具名与原因，提供「允许一次」/「拒绝」。此前这类审批帧被插件丢弃，导致没有弹窗。
+
+### 修复
+
+- **新建会话绑定工作区**：插件创建会话时不再「未分组」——会对当前 cwd resolve（find-or-create）其 DSH workspace，并带 `workspaceId` 创建会话，使 Web UI 端会话正确挂到对应工作区下，而不是落在「未分组」里。（`session.create` 只接受 `workspaceId` 或 `cwd` 二选一，已据此修正 payload。）
+
 ## [0.6.9] - 2026-08-16
 
 ### 新增

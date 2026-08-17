@@ -41,6 +41,8 @@ export type ControllerEvent =
   | { type: 'connection'; connected: boolean; error?: string }
   | { type: 'question'; sessionId: string; rpcId: string; questions: QuestionItem[] }
   | { type: 'questionResolved'; sessionId: string; rpcId: string; outcome: 'answered' | 'cancelled' }
+  | { type: 'approval'; sessionId: string; rpcId: string; approvalId: string; toolName: string; callId?: string; reason?: string }
+  | { type: 'approvalResolved'; sessionId: string; approvalId: string; outcome: string }
   | { type: 'toast'; kind: 'error' | 'info' | 'warn'; text: string }
 
 /** One user question the agent asked (wire-safe subset). */
@@ -168,7 +170,11 @@ export class ChatController implements vscode.Disposable {
       .sort((a, b) => b.updatedAt - a.updatedAt)
     if (mine.length === 0) {
       // Fresh workspace: open one blank session so the tab bar has a home.
-      const created = await this.client.createSession({ cwd, agentPreset: getDshConfig().agentPreset })
+      const workspaceId = await this.resolveWorkspaceId(cwd)
+      const created = await this.client.createSession({
+        ...(workspaceId !== undefined ? { workspaceId } : { cwd }),
+        agentPreset: getDshConfig().agentPreset,
+      })
       const st = newSessionState(created.sessionId, true)
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId
@@ -584,6 +590,21 @@ export class ChatController implements vscode.Disposable {
   }
 
   /**
+   * Resolve (find-or-create) the DSH workspace id for a cwd, so sessions can be
+   * attached to a workspace and show up grouped in the DSH Web UI. Returns
+   * undefined when the workspace can't be resolved (the session then falls back
+   * to cwd-only, preserving existing behaviour) or when the cwd is unusable.
+   */
+  private async resolveWorkspaceId(cwd: string): Promise<string | undefined> {
+    try {
+      const { workspace } = await this.client.workspaceCreate(cwd)
+      return workspace.workspaceId
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
    * Create a fresh DSH session and make it the active tab. Returns its id.
    * @param agentPreset - the agent preset id (standard / minimal / …); defaults
    *   to the configured preset when omitted.
@@ -591,7 +612,19 @@ export class ChatController implements vscode.Disposable {
   async newSession(agentPreset?: string): Promise<string | undefined> {
     if (this.cwd === undefined) return undefined
     try {
-      const created = await this.client.createSession({ cwd: this.cwd, agentPreset: agentPreset ?? getDshConfig().agentPreset })
+      // Bind the session to the cwd's workspace so the DSH Web UI groups it
+      // under that workspace instead of "未分组" (DSH only attaches when
+      // session.create carries a workspaceId).
+      // DSH's session.create accepts workspaceId OR cwd, not both (cwd is
+      // derived from the workspace's path when workspaceId is given). Bind to
+      // the workspace so the Web UI groups the session; fall back to cwd-only.
+      const workspaceId = await this.resolveWorkspaceId(this.cwd)
+      const created = await this.client.createSession({
+        ...(workspaceId !== undefined
+          ? { workspaceId }
+          : { cwd: this.cwd }),
+        agentPreset: agentPreset ?? getDshConfig().agentPreset,
+      })
       const st = newSessionState(created.sessionId, true)
       this.sessions.set(st.sessionId, st)
       this.activeSessionId = st.sessionId
@@ -722,6 +755,25 @@ export class ChatController implements vscode.Disposable {
     this.emit({ type: 'questionResolved', sessionId: st.sessionId, rpcId, outcome: 'cancelled' })
   }
 
+  /** Allow (once) or reject a permission elevation request (approval/requested). */
+  async respondApproval(
+    rpcId: string,
+    approvalId: string,
+    outcome: 'allowed-once' | 'rejected',
+    sessionId?: string,
+  ): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    if (st === undefined) return
+    const { accepted, reason } = await this.client.respond(rpcId, true, {
+      sessionId: st.sessionId,
+      approvalId,
+      outcome,
+    })
+    if (!accepted) {
+      this.emit({ type: 'toast', kind: 'warn', text: `审批未接受（${reason ?? 'unknown'}）` })
+    }
+  }
+
   // ---- event streams ----
 
   private onMuxFrame(frame: MuxFrame, rpcId: string): void {
@@ -743,6 +795,24 @@ export class ChatController implements vscode.Disposable {
     }
     if (frame.type === 'question/resolved') {
       this.emit({ type: 'questionResolved', sessionId: frame.sessionId, rpcId: frame.questionRpcId, outcome: frame.outcome })
+      return
+    }
+    if (frame.type === 'approval/requested') {
+      // A server-request frame with a stable rpcId — surface an approval banner
+      // so the user can accept (allow once) or reject a permission elevation.
+      this.emit({
+        type: 'approval',
+        sessionId: frame.sessionId,
+        rpcId,
+        approvalId: frame.approvalId,
+        toolName: frame.toolName,
+        ...(frame.callId === undefined ? {} : { callId: frame.callId }),
+        ...(frame.reason === undefined ? {} : { reason: frame.reason }),
+      })
+      return
+    }
+    if (frame.type === 'approval/resolved') {
+      this.emit({ type: 'approvalResolved', sessionId: frame.sessionId, approvalId: frame.approvalId, outcome: frame.outcome })
       return
     }
     if (frame.type === 'session/queue') {

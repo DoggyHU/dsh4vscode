@@ -204,6 +204,19 @@ body {
 }
 .btn-cancel-q:hover { color: var(--fg); border-color: var(--fg); }
 
+/* ---- permission approval banner ---- */
+.approval-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1px solid var(--warn);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  padding: 8px 10px;
+  margin-top: 6px;
+}
+.approval-text { font-size: 12.5px; color: var(--fg); white-space: pre-wrap; flex: 1; }
+.approval-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
 /* ---- chat ---- */
 #chat-scroll { flex: 1; overflow-y: auto; }
 .chat { padding: 10px 12px 16px; display: flex; flex-direction: column; gap: 10px; }

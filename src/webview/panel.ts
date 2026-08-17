@@ -246,6 +246,22 @@ export class ChatPanel implements vscode.Disposable {
         if (rpcId !== '') await this.controller.cancelQuestion(rpcId, sessionId)
         break
       }
+      case 'answerApproval': {
+        const rpcId = String(message.rpcId ?? '')
+        const approvalId = String(message.approvalId ?? '')
+        if (rpcId !== '' && approvalId !== '') {
+          await this.controller.respondApproval(rpcId, approvalId, 'allowed-once', sessionId)
+        }
+        break
+      }
+      case 'rejectApproval': {
+        const rpcId = String(message.rpcId ?? '')
+        const approvalId = String(message.approvalId ?? '')
+        if (rpcId !== '' && approvalId !== '') {
+          await this.controller.respondApproval(rpcId, approvalId, 'rejected', sessionId)
+        }
+        break
+      }
       case 'clear':
         this.controller.clearChat(sessionId)
         break
@@ -342,6 +358,13 @@ export class ChatPanel implements vscode.Disposable {
       <div class="question-actions">
         <button id="btn-question-cancel" class="btn-cancel-q">取消</button>
         <button id="btn-question-submit" class="btn-send">提交回答</button>
+      </div>
+    </div>
+    <div id="approval-banner" class="approval-banner hidden">
+      <div id="approval-text" class="approval-text"></div>
+      <div class="approval-actions">
+        <button id="btn-approval-reject" class="btn-cancel-q">拒绝</button>
+        <button id="btn-approval-allow" class="btn-send">允许一次</button>
       </div>
     </div>
   </header>

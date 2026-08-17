@@ -62,6 +62,16 @@ export interface CreateSessionValue {
   agentPreset?: string
 }
 
+/** One workspace registry row (workspace.create / workspace.list). */
+export interface WorkspaceView {
+  workspaceId: string
+  path: string
+  title: string
+  sessionIds: string[]
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface SessionEvent {
   type: string
   seq: number
@@ -206,7 +216,7 @@ export type MuxFrame =
   | { type: 'session/event'; sessionId: string; event: SessionEvent; view?: unknown }
   | { type: 'session/subscribed'; sessionId: string; lastSeq: number }
   | { type: 'approval/requested'; sessionId: string; approvalId: string; toolName: string; callId?: string; reason?: string }
-  | { type: 'approval/resolved'; sessionId: string; approvalId: string; outcome: unknown }
+  | { type: 'approval/resolved'; sessionId: string; approvalId: string; outcome: string }
   | { type: 'question/requested'; sessionId: string; questions: { id: string; question: string; detail?: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean }[] }
   | { type: 'question/resolved'; sessionId: string; questionRpcId: string; outcome: 'answered' | 'cancelled' }
   | { type: 'session/queue'; sessionId: string; items: QueuedInboxItem[] }

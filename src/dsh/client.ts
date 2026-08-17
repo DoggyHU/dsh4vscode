@@ -18,6 +18,7 @@ import type {
   RpcResult,
   ServerResponse,
   SessionSummary,
+  WorkspaceView,
 } from './types.js'
 
 export class DshRpcError extends Error {
@@ -126,6 +127,16 @@ export class DshClient {
 
   createSession(payload: CreateSessionPayload): Promise<CreateSessionValue> {
     return this.call('session.create', payload)
+  }
+
+  /**
+   * Resolve (find-or-create) the DSH workspace for a cwd. Idempotent: returns
+   * the existing workspace for that path when one is already registered, else
+   * creates one. Returning a `workspaceId` lets `session.create` attach the new
+   * session so the Web UI groups it under the workspace instead of "未分组".
+   */
+  workspaceCreate(path: string): Promise<{ workspace: WorkspaceView; created: boolean }> {
+    return this.call('workspace.create', { path })
   }
 
   /** List the discoverable agent presets (standard / minimal / …). */
