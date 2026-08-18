@@ -7,6 +7,8 @@ export interface DshConfig {
   baseUrl: string
   workspacePath: string
   agentPreset: string
+  /** Auto-open the DSH chat editor window on VS Code startup (Claude Code parity). */
+  autoOpenOnStartup: boolean
 }
 
 export function getDshConfig(): DshConfig {
@@ -15,6 +17,7 @@ export function getDshConfig(): DshConfig {
     baseUrl: normalizeBaseUrl(cfg.get<string>('baseUrl', 'http://127.0.0.1:3080')),
     workspacePath: cfg.get<string>('workspacePath', ''),
     agentPreset: cfg.get<string>('agentPreset', 'standard'),
+    autoOpenOnStartup: cfg.get<boolean>('autoOpenOnStartup', true),
   }
 }
 

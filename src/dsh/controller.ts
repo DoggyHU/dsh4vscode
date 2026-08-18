@@ -161,12 +161,18 @@ export class ChatController implements vscode.Disposable {
   /**
    * List this workspace's DSH sessions and open the most recent one; the rest
    * become history entries (tabs appear as they are switched to).
+   *
+   * Running sessions are NOT excluded: reopening VS Code should restore the
+   * session the user was last active in, regardless of whether DSH still marks
+   * it as running (an agent left in the middle of a turn is exactly the session
+   * you want back). Excluding `running` here would fall back to an older blank
+   * session and make it look like history was lost.
    */
   private async restoreSessions(cwd: string): Promise<void> {
     const { items } = await this.client.listSessions()
     const norm = normalizePath(cwd)
     const mine = items
-      .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm && !item.running)
+      .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm)
       .sort((a, b) => b.updatedAt - a.updatedAt)
     if (mine.length === 0) {
       // Fresh workspace: open one blank session so the tab bar has a home.

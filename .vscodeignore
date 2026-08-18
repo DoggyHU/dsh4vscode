@@ -10,4 +10,8 @@ refs/
 *.log
 out/**/*.d.ts
 vscode-state.png
+0
+_cdpprobe.js
+_probe_shot.png
+.restore-test-profile/**
 !media/**

@@ -2,7 +2,7 @@
   "name": "dsh4vscode",
   "displayName": "DSH Chat for VS Code",
   "description": "DeepSeek Harness (DSH) inside VS Code: chat with the running DSH instance in editor windows, mirroring the DSH Web UI's model picker and session behavior.",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "publisher": "dsh4vscode",
   "license": "MIT",
   "repository": {
@@ -27,6 +27,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:dsh.openChat",
     "onCommand:dsh.openInEditor",
     "onCommand:dsh.newWindow",
@@ -140,6 +141,11 @@
           "type": "string",
           "default": "standard",
           "description": "Agent preset used when creating sessions."
+        },
+        "dsh.autoOpenOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动打开 DSH 聊天窗口（Claude Code 风格）：VS Code 启动后自动恢复上次的工作区会话并打开聊天面板。设为 false 需手动按 Ctrl+Alt+D 打开。"
         }
       }
     }

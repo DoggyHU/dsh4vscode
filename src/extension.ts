@@ -9,6 +9,8 @@ import { ChatPanel } from './webview/panel.js'
 let controller: ChatController | undefined
 let panel: ChatPanel | undefined
 let statusBar: vscode.StatusBarItem | undefined
+/** One-shot auto-open guard for this window's lifetime (avoid duplicate windows). */
+let autoOpenedOnce = false
 
 export function activate(ctx: vscode.ExtensionContext): void {
   controller = new ChatController(ctx)
@@ -61,13 +63,34 @@ export function activate(ctx: vscode.ExtensionContext): void {
     }),
   )
 
-  // Kick off session init once a workspace is available.
-  void controller.init()
+  // Auto-open the chat window (Claude Code / OpenCode parity): after the
+  // controller restores the last session, surface it in the editor area so the
+  // user doesn't have to press Ctrl+Alt+D. Guarded so it only fires once a real
+  // workspace is present and only once per window.
+  const maybeAutoOpen = async (): Promise<void> => {
+    if (!getDshConfig().autoOpenOnStartup) return
+    // Only auto-open once a workspace folder is actually loaded (the controller
+    // briefly runs against the homedir fallback before the folder restores).
+    if ((vscode.workspace.workspaceFolders?.length ?? 0) === 0) return
+    if (panel?.hasWindows() ?? false) return
+    const sid = controller?.getActiveSessionId()
+    if (sid !== undefined) await panel?.openSessionWindow(sid)
+  }
 
-  // Re-init when the workspace root changes (or opens late).
+  // Kick off session init once a workspace is available, then auto-open.
+  void (async () => {
+    await controller?.init()
+    await maybeAutoOpen()
+  })()
+
+  // Re-init when the workspace root changes (or opens late), then auto-open if
+  // the first attempt ran before the workspace folder was ready.
   const onFolderChange = (): void => {
-    void controller?.reconnect()
-    void controller?.init()
+    void (async () => {
+      await controller?.reconnect()
+      await controller?.init()
+      await maybeAutoOpen()
+    })()
   }
   ctx.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(onFolderChange))
 }

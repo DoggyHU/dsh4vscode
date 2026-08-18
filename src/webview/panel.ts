@@ -49,6 +49,11 @@ export class ChatPanel implements vscode.Disposable {
     })
   }
 
+  /** Whether any DSH editor window is currently open in this window. */
+  hasWindows(): boolean {
+    return this.windows.size > 0
+  }
+
   /** Open a new independent chat window, prompting for the agent preset first. */
   async newWindow(): Promise<void> {
     const sessionId = await this.controller.newSessionWithChoice()
