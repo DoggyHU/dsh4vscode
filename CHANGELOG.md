@@ -4,6 +4,19 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.13] - 2026-08-19
+
+### 修复
+
+- **「历史会话」按钮点几下都没反应、打开慢**：webview 顶栏的「历史会话」按钮内部是个 `<span class="codicon">`，document 层的「点击外部关闭」监听用的是 `e.target !== btnHistory` 判断——点图标时 `e.target` 是里面那个 span 而非按钮本身，弹层刚打开就被该监听秒关，看起来像没反应。已改为 `!btnHistory.contains(e.target)`，点图标也视为点在按钮上。同时打开时先显示「加载中…」占位，不再留空白/闪烁。
+- **历史会话列表出现一堆「未命名会话」、与 DSH Web UI 不一致**：历史列表原先只按工作区（cwd）过滤，把扩展自动创建的空占位会话（`blank`，无内容，web 里是隐藏的）也列了出来。现增加 `!item.blank` 过滤，只显示本工作区内真实有内容的会话，与 web 对齐。
+
+## [0.6.12] - 2026-08-19
+
+### 修复
+
+- **「思考」effort 下拉框背景是白色、不随 VS Code 主题联动（而「模型」下拉是正常的黑底）**：`#effort-select` 此前在样式表里没有任何规则，落到浏览器默认的白色 `<select>` 样式，在深色主题下特别显眼。现已让它与 `#model-select` 共用同一套 VS Code 主题变量（`--vscode-dropdown-background` / `--vscode-dropdown-foreground`），两个下拉框背景/文字色统一随主题联动。
+
 ## [0.6.11] - 2026-08-18
 
 ### 新增
@@ -13,6 +26,12 @@
 ### 修复
 
 - **自动恢复会回退到空白会话**：恢复逻辑原先用 `!item.running` 排除「运行中」的会话，导致重开 VS Code 时把最新且正在运行的真实历史会话（如关 VS Code 前正在跑的那次）过滤掉，反而打开了较旧的空白会话。现在改为按「最近更新」取最新会话（**不再排除运行中**），关闭前正在运行的那个会话也能被正确恢复。
+- **排队/插队消息回复不显示（只剩 `auto` + 自己发的内容，没有 AI 回复）**：根因是 `turn/start` 事件先于该轮 `user/message` 到达且插件没有本地 pending turn（排队/插队消息被 agent 认领、或从 DSH Web UI 发的消息都属此类），导致 DSH 的高水位（`lastSeenTurn`）先被顶上去，后续 `assistant/chunk` 永远无法 adoption、回复被整段丢弃。现插件在处理 `turn/start` 时若发现没有本地 pending turn，会立即建立并挂到该 turn 号，使排队的回复能正常显示。
+- **排队/外部消息的模型标签显示为 `auto`**：插件现在处理 `request/context` 事件，把当前 turn 头部标签更新成实际使用的模型（不再固定 `auto`）。
+
+### 新增
+
+- **排队坞支持编辑排队消息（DSH Web UI 同款）**：排队中的每条消息左侧新增「✎」编辑按钮，点开变成输入框，`Enter` 保存 / `Esc` 取消 / 失焦保存，保存后调用 `session.updateQueue({action:{kind:'edit'}})`，与 DSH Web UI 的编辑排队消息一致。
 
 ## [0.6.10] - 2026-08-17
 

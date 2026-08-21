@@ -181,6 +181,12 @@ export class ChatPanel implements vscode.Disposable {
       case 'removeQueued':
         await this.controller.removeQueued(String(message.itemId ?? ''), sessionId)
         break
+      case 'editQueued': {
+        const itemId = String(message.itemId ?? '')
+        const text = String(message.text ?? '')
+        if (itemId !== '' && text !== '') await this.controller.editQueued(itemId, text, sessionId)
+        break
+      }
       case 'setModelChoice': {
         const model = String(message.model ?? 'auto')
         await this.controller.setModelChoice(model, sessionId)

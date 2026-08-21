@@ -2,3 +2,5 @@ node_modules/
 out/
 *.vsix
 refs/
+.dsh-vision-toolkit/
+vscode-state.png

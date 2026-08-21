@@ -654,8 +654,13 @@ export class ChatController implements vscode.Disposable {
     try {
       const { items } = await this.client.listSessions()
       const norm = normalizePath(this.cwd)
+      // Keep only real conversations: sessions bound to this workspace AND not
+      // blank (blank = auto-created empty stub with no user content, created on
+      // startup/new-session; DSH Web hides these, so hiding them here keeps the
+      // history picker aligned with the Web UI instead of showing a pile of
+      // "未命名会话" stubs).
       return items
-        .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm)
+        .filter((item) => item.cwd !== undefined && normalizePath(item.cwd) === norm && !item.blank)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, MAX_HISTORY_TITLES)
         .map((item) => ({
@@ -734,6 +739,19 @@ export class ChatController implements vscode.Disposable {
       await this.client.updateQueue(st.sessionId, itemId, { kind: 'remove' })
     } catch {
       // non-fatal; queue snapshot will reconcile
+    }
+  }
+
+  /** Edit the text of a pending queued message (mirrors the DSH Web UI). */
+  async editQueued(itemId: string, newText: string, sessionId?: string): Promise<void> {
+    const st = sessionId !== undefined ? this.sessions.get(sessionId) : this.active()
+    const trimmed = newText.trim()
+    if (st === undefined || trimmed === '') return
+    try {
+      await this.client.updateQueue(st.sessionId, itemId, { kind: 'edit', content: [{ type: 'text', text: trimmed }] })
+      this.emit({ type: 'toast', kind: 'info', text: '已更新排队消息' })
+    } catch (error) {
+      this.emit({ type: 'toast', kind: 'warn', text: `编辑失败：${errorMessage(error)}` })
     }
   }
 
@@ -859,9 +877,48 @@ export class ChatController implements vscode.Disposable {
     this.adoptTurnIfNeeded(st, dshTurn)
     if (dshTurn !== undefined && dshTurn > st.lastSeenTurn) st.lastSeenTurn = dshTurn
     switch (event.type) {
+      case 'turn/start': {
+        // A NEW turn is beginning. When this turn was NOT created locally
+        // (send()), it is a queued/steered message claimed by the agent — or a
+        // message sent from the DSH Web UI — and `pendingTurnId` is still
+        // undefined here because the turn's user/message event arrives AFTER
+        // turn/start. Without handling this, the high-water mark (lastSeenTurn)
+        // already advanced past this turn number by the time onUserMessage runs,
+        // so adoptTurnIfNeeded can never rekey the pending turn and every
+        // assistant/chunk of the reply is dropped — the user sees only their own
+        // text under a stuck 'auto' label with no reply.
+        const ts = (event.data as { turn?: unknown } | null)?.turn
+        if (typeof ts === 'number' && st.pendingTurnId === undefined && st.currentTurnId !== ts) {
+          st.currentTurnId = undefined
+          const turnId = st.turnSeq--
+          const turn: ChatTurn = { id: ts, items: [], status: 'running', model: 'auto' }
+          st.turns.push(turn)
+          st.pendingTurnId = undefined
+          st.currentTurnId = ts
+          st.currentStep = -1
+          st.stepTextItemId = undefined
+          this.setRunning(st, true)
+          this.emitState()
+        }
+        break
+      }
       case 'assistant/chunk':
         this.onChunk(st, event.data as AssistantChunkData)
         break
+      case 'request/context': {
+        // The model actually used for this turn — surface it on the turn header
+        // instead of a generic 'auto' label (mirrors the DSH Web UI).
+        const ctx = event.data as { provider?: unknown; model?: unknown } | null
+        const model = typeof ctx?.model === 'string' && ctx.model !== '' ? ctx.model : undefined
+        if (model !== undefined) {
+          const turn = this.currentTurn(st) ?? st.turns.find((t) => t.id === st.pendingTurnId)
+          if (turn !== undefined && turn.model === 'auto') {
+            turn.model = model
+            this.emit({ type: 'turnStatus', sessionId: st.sessionId, turnId: turn.id, status: turn.status, model: labelFor(model), errorMessage: turn.errorMessage })
+          }
+        }
+        break
+      }
       case 'assistant/message':
         this.onAssistantMessage(st, event.data as AssistantMessageData)
         break

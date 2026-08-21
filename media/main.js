@@ -92,6 +92,10 @@
   function openHistory() {
     historyPop.classList.toggle('hidden')
     if (!historyPop.classList.contains('hidden')) {
+      // Show an immediate "loading" placeholder instead of leaving the popup
+      // blank (or stale) during the DSH round-trip, and request the list once
+      // (a re-click while loading just re-opens the same request).
+      historyList.innerHTML = '<div class="history-empty">加载中…</div>'
       vscode.postMessage({ type: 'listHistory' })
     }
   }
@@ -453,6 +457,41 @@
       body.textContent = text ? (text.length > 90 ? text.slice(0, 90) + '…' : text) : '（消息）'
       body.title = text
       row.appendChild(body)
+      const edit = document.createElement('button')
+      edit.className = 'queue-edit'
+      edit.textContent = '✎'
+      edit.title = '编辑这条排队消息'
+      edit.addEventListener('click', () => {
+        // Inline edit: swap the text for an input; Enter/blur saves, Esc cancels.
+        const input = document.createElement('input')
+        input.className = 'queue-edit-input'
+        input.type = 'text'
+        input.value = text
+        input.title = '编辑排队消息，Enter 保存，Esc 取消'
+        body.replaceWith(input)
+        input.focus()
+        input.select()
+        let done = false
+        const commit = () => {
+          if (done) return
+          done = true
+          const val = input.value.trim()
+          if (val !== '' && val !== text) {
+            vscode.postMessage({ type: 'editQueued', itemId: item.id, text: val, sessionId: activeSessionId })
+          } else {
+            input.replaceWith(body)
+          }
+        }
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') commit()
+          else if (e.key === 'Escape') {
+            done = true
+            input.replaceWith(body)
+          }
+        })
+        input.addEventListener('blur', commit)
+      })
+      row.appendChild(edit)
       const steer = document.createElement('button')
       steer.className = 'queue-steer'
       steer.textContent = '⤴ 打断插队'
@@ -977,7 +1016,11 @@
   })
   btnHistory.addEventListener('click', openHistory)
   document.addEventListener('click', (e) => {
-    if (!historyPop.classList.contains('hidden') && !historyPop.contains(e.target) && e.target !== btnHistory) {
+    // `.contains` (not `e.target !== btnHistory`): clicking the codicon glyph
+    // inside the button targets the child <span>, which would otherwise be
+    // treated as an outside click and instantly re-close the popup we just
+    // opened — making the history button appear dead when clicked on the icon.
+    if (!historyPop.classList.contains('hidden') && !historyPop.contains(e.target) && !btnHistory.contains(e.target)) {
       historyPop.classList.add('hidden')
     }
   })

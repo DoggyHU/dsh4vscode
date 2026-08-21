@@ -49,7 +49,7 @@ body {
 .icon-btn .codicon { font-size: 14px; }
 .icon-btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08)); color: var(--fg); }
 .model-label { font-size: 11px; color: var(--muted); }
-#model-select {
+#model-select, #effort-select {
   background: var(--vscode-dropdown-background, #313131);
   color: var(--vscode-dropdown-foreground, #ccc);
   border: 1px solid var(--border);
@@ -454,6 +454,26 @@ body {
   cursor: pointer;
 }
 .queue-steer:hover { filter: brightness(1.1); }
+.queue-edit {
+  flex-shrink: 0;
+  background: transparent; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 11px; font-weight: 600;
+  cursor: pointer;
+}
+.queue-edit:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.queue-edit-input {
+  flex: 1; min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--vscode-input-background, #313131);
+  color: var(--vscode-input-foreground, var(--fg));
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  outline: none;
+}
 .queue-rm {
   flex-shrink: 0;
   background: transparent; color: var(--muted);
