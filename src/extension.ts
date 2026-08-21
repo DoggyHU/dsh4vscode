@@ -59,7 +59,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
       await controller?.reconnect()
     }),
     vscode.commands.registerCommand('dsh.openDshWeb', () => {
-      void vscode.env.openExternal(vscode.Uri.parse(getDshConfig().baseUrl))
+      // Open the DSH web UI inside VS Code (Simple Browser); fall back to the
+      // system browser if the command is unavailable.
+      void vscode.commands.executeCommand('simpleBrowser.show', getDshConfig().baseUrl)
+        .then(undefined, () => vscode.env.openExternal(vscode.Uri.parse(getDshConfig().baseUrl)))
     }),
   )
 
